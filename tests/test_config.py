@@ -45,6 +45,25 @@ class PathsTest(Base):
         self.assertEqual(paths.ENGINE_DIR, paths.REPO_ROOT / "engine")
 
 
+class PathSafetyTest(Base):
+    def test_unsafe_ids_and_keys_rejected(self):
+        for bad in ("../x", "a/b", "", "abc\n", "A", "x" * 32):
+            for fn in (paths.crew_config_path, paths.crew_state_dir, paths.worktrees_dir):
+                with self.assertRaises(ValueError, msg=repr(bad)):
+                    fn(bad)
+            with self.assertRaises(ValueError):
+                paths.ticket_dir(bad, "ENG-1")
+        for bad in ("../x", "a/b", "", "ENG-1\n", "-x", "A" * 21):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                paths.ticket_dir("a", bad)
+        self.assertFalse((self.home / "state").exists())
+
+    def test_trailing_newline_rejected_by_validate(self):
+        self.assertIn("id", self.errors(lambda c: c.__setitem__("id", "abc\n")))
+        out = self.errors(lambda c: c["schedule"].__setitem__("start", "07:00\n"))
+        self.assertIn("schedule.start", out)
+
+
 class ConfigTest(Base):
     def test_example_config_loads_with_defaults(self):
         (self.home / "crews").mkdir()

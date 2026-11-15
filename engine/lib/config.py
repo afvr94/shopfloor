@@ -41,8 +41,8 @@ BOARD_DEFAULTS = {
 }
 
 PLAIN_STYLE = "Plain, neutral and brief. No jokes, slang or emoji."
-ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
-HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+ID_RE = paths.CREW_ID_RE
+HHMM_RE = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 GITHUB_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
 MOVE_RE = re.compile(r"^(\w+)->(\w+)$")
 
@@ -74,7 +74,7 @@ def validate(cfg: dict) -> list[str]:
         v = c.get(key)
         return v if isinstance(v, dict) else {}
 
-    if not (isinstance(c.get("id"), str) and ID_RE.match(c["id"])):
+    if not (isinstance(c.get("id"), str) and ID_RE.fullmatch(c["id"])):
         errs.append("id must match ^[a-z0-9][a-z0-9-]{0,30}$")
     if d("tracker").get("type") != "linear":
         errs.append("tracker.type must be 'linear'")
@@ -94,9 +94,9 @@ def validate(cfg: dict) -> list[str]:
     if sched:
         start, until = sched.get("start"), sched.get("until")
         for k, v in (("start", start), ("until", until)):
-            if not (isinstance(v, str) and HHMM_RE.match(v)):
+            if not (isinstance(v, str) and HHMM_RE.fullmatch(v)):
                 errs.append(f"schedule.{k} must be HH:MM")
-        if all(isinstance(v, str) and HHMM_RE.match(v) for v in (start, until)) and until <= start:
+        if all(isinstance(v, str) and HHMM_RE.fullmatch(v) for v in (start, until)) and until <= start:
             errs.append("schedule.until must be later than schedule.start")
         every = sched.get("everyHours")
         if not (isinstance(every, int) and not isinstance(every, bool) and 1 <= every <= 24):

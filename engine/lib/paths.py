@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 ENGINE_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = ENGINE_DIR.parent
 SF_BIN = ENGINE_DIR / "bin"
+
+CREW_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,30}")
+TICKET_KEY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,19}")
+
+
+def _check(pattern: re.Pattern, value: object, what: str) -> str:
+    if not (isinstance(value, str) and pattern.fullmatch(value)):
+        raise ValueError(f"invalid {what}: {value!r}")
+    return value
 
 
 def shopfloor_home() -> Path:
@@ -13,16 +23,17 @@ def shopfloor_home() -> Path:
 
 
 def crew_config_path(crew_id: str) -> Path:
-    return shopfloor_home() / "crews" / f"{crew_id}.json"
+    return shopfloor_home() / "crews" / f"{_check(CREW_ID_RE, crew_id, 'crew id')}.json"
 
 
 def crew_state_dir(crew_id: str) -> Path:
-    d = shopfloor_home() / "state" / crew_id
+    d = shopfloor_home() / "state" / _check(CREW_ID_RE, crew_id, "crew id")
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def ticket_dir(crew_id: str, key: str) -> Path:
+    _check(TICKET_KEY_RE, key, "ticket key")
     return crew_state_dir(crew_id) / "tickets" / key
 
 
