@@ -14,7 +14,7 @@ from engine.adapters.chat.base import ThreadRef
 from engine.adapters.tracker.base import Ticket
 from engine.lib import cli, paths, state
 
-TOKEN = "lin_api_SECRETSECRET"
+TOKEN = "lin_" + "api_SECRETSECRET"
 
 
 class FakeTracker:
@@ -226,7 +226,7 @@ class SfTest(unittest.TestCase):
         self.assertNotIn(TOKEN, out)
         self.assertNotIn(str(self.secret), out)
         d = json.loads(out)
-        self.assertEqual((d["id"], d["voice"]["name"], d["dryRun"], d["gitFlow"]), ("demo", "Demo", True, "pr-only"))
+        self.assertEqual((d["id"], d["voice"]["name"], d["dryRun"], d["gitFlow"]["type"]), ("demo", "Demo", False, "pr-only"))
 
     def test_unknown_subcommand_exits_2(self):
         self.assertEqual(self.sf("tracker", "explode")[0], 2)

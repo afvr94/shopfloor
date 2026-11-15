@@ -74,7 +74,7 @@ def h_config(a, cfg):
           "dryRun": cfg["dryRun"], "paused": cfg["paused"], "autoRecommend": cfg["autoRecommend"],
           "limits": cfg["limits"],
           "repos": {n: {"github": r["github"], "base": r["base"]} for n, r in cfg["repos"].items()},
-          "gitFlow": cfg["gitFlow"]["type"], "policyPacks": cfg["policyPacks"]})
+          "gitFlow": {"type": cfg["gitFlow"]["type"]}, "policyPacks": cfg["policyPacks"]})
 
 
 def h_candidates(a, cfg):
