@@ -32,7 +32,7 @@ ROWS = [
     ("push HEAD on main", BASH, "git push origin HEAD", {}, "main", True),
     ("push to testBranch outside test flow", BASH, "git push origin staging",
      {"gitFlow": {"type": "pr-only", "testBranch": "staging"}}, "wt", True),
-    ("push to testBranch in test flow", BASH, "git push origin staging", TEST_FLOW, "wt", False),
+    ("push to testBranch in test flow", BASH, "git push origin staging", TEST_FLOW, "wt", True),
     ("push feature branch", BASH, "git push -u origin shopfloor/eng-1-x", {}, "wt", False),
     ("push feature HEAD", BASH, "git push origin HEAD", {}, "wt", False),
     ("push no refspec on feature", BASH, "git push", {}, "wt", False),
@@ -49,7 +49,7 @@ ROWS = [
     ("push --mirror", BASH, "git push --mirror origin", {}, "wt", True),
     ("push --all", BASH, "git push --all origin", {}, "wt", True),
     ("push --tags --force", BASH, "git push --tags --force origin", {}, "wt", True),
-    ("push --tags", BASH, "git push --tags origin", {}, "wt", False),
+    ("push --tags", BASH, "git push --tags origin", {}, "wt", True),
     # git -C and cd
     ("git -C main push", BASH, "git -C %MAIN% push", {}, "wt", True),
     ("git -C feature push", BASH, "git -C %WT% push", {}, "main", False),
@@ -83,7 +83,8 @@ ROWS = [
     ("merge on testBranch", BASH, "git merge shopfloor/eng-1-x", TEST_FLOW, "test", True),
     ("git -C main merge", BASH, "git -C %MAIN% merge shopfloor/eng-1-x", {}, "wt", True),
     ("merge origin/main on feature", BASH, "git merge origin/main", {}, "wt", False),
-    ("merge --abort on main", BASH, "git merge --abort", {}, "main", False),
+    ("merge --abort in main checkout", BASH, "git merge --abort", {}, "main", True),
+    ("merge --abort on feature", BASH, "git merge --abort", {}, "wt", False),
     # other git
     ("git remote set-url", BASH, "git remote set-url origin https://x/y.git", {}, "wt", True),
     ("git remote add", BASH, "git remote add evil https://x/y.git", {}, "wt", True),
@@ -229,7 +230,7 @@ ROWS = [
     ("brace expansion into git push", BASH, "{git,push} origin main", {}, "wt", True),
     ("brace expansion refspec", BASH, "git push origin {main,x}", {}, "wt", True),
     ("glob command name", BASH, "/usr/bin/gi? push origin main", {}, "wt", True),
-    ("git -C without a value", BASH, "git -C", {}, "wt", False),
+    ("git -C without a value", BASH, "git -C", {}, "wt", True),
     ("single-quoted dollar is literal", BASH, "awk '{print $1}' app.py", {}, "wt", False),
     ("double-quoted variable path", BASH, "cat \"$F\"", {}, "wt", True),
     # crew config and engine dir
@@ -241,6 +242,113 @@ ROWS = [
     ("Write own state file", WRITE, {"file_path": "%HOME%/state/demo/tickets/ENG-1/notes.md", "content": "x"},
      {}, "wt", False),
     ("Read crew config", READ, {"file_path": "%HOME%/crews/demo.json"}, {}, "wt", False),
+    # fix round 1: git subcommand allowlist and dynamic subcommands
+    ("ANSI-C quoted subcommand", BASH, "git $'push' origin main", {}, "wt", True),
+    ("default-expansion subcommand", BASH, "git ${X:-push} origin main", {}, "wt", True),
+    ("variable subcommand", BASH, "X=push; git $X origin main", {}, "wt", True),
+    ("function wrapping git", BASH, "f() { git \"$@\"; }; f push origin main", {}, "wt", True),
+    ("git send-pack", BASH, "git send-pack git@github.com:o/app.git HEAD:main", {}, "wt", True),
+    ("git worktree add", BASH, "git worktree add /tmp/x main", {}, "wt", True),
+    ("git tag create", BASH, "git tag v1", {}, "wt", True),
+    ("git branch -D", BASH, "git branch -D main", {}, "wt", True),
+    ("git rebase on protected", BASH, "git rebase shopfloor/eng-1-x", TEST_FLOW, "test", True),
+    ("git rebase --exec", BASH, "git rebase -x 'git push origin main' origin/main", {}, "wt", True),
+    ("git reset --hard on protected", BASH, "git reset --hard HEAD~1", TEST_FLOW, "test", True),
+    ("git grep -O", BASH, "git grep -Ovim x", {}, "wt", True),
+    ("git log --output outside", BASH, "git log --output=%REPO_ROOT%/x", {}, "wt", True),
+    ("git commit in main checkout", BASH, "git -C %MAIN% commit -m x", {}, "wt", True),
+    ("git unknown global option", BASH, "git --exec-path=/tmp status", {}, "wt", True),
+    # git config and env injection
+    ("GIT_CONFIG_* env", BASH,
+     "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.push GIT_CONFIG_VALUE_0=HEAD:refs/heads/main git push origin",
+     {}, "wt", True),
+    ("export GIT_DIR", BASH, "export GIT_DIR=%MAIN%/.git; git push", {}, "wt", True),
+    ("GH_ env", BASH, "GH_REPO=o/other gh pr view 1", {}, "wt", True),
+    ("git --config-env", BASH, "X=push git --config-env=alias.p=X p origin main", {}, "wt", True),
+    ("git -c include.path", BASH, "git -c include.path=/tmp/x p origin main", {}, "wt", True),
+    ("git config core.fsmonitor", BASH, "git config core.fsmonitor 'git push origin main'", {}, "wt", True),
+    ("git config core.pager", BASH, "git config core.pager 'sh -c x'", {}, "wt", True),
+    ("git config credential.helper", BASH, "git config credential.helper store", {}, "wt", True),
+    # push allowlist
+    ("push HEAD:heads/main", BASH, "git push origin HEAD:heads/main", {}, "wt", True),
+    ("push to a non-crew branch", BASH, "git push origin HEAD:release", {}, "wt", True),
+    ("push to refs/tags", BASH, "git push origin HEAD:refs/tags/v1", {}, "wt", True),
+    # unknown wrappers
+    ("arch wrapper", BASH, "arch -arm64 git push origin main", {}, "wt", True),
+    ("setsid wrapper", BASH, "setsid git push origin main", {}, "wt", True),
+    ("flock wrapper", BASH, "flock /tmp/l git push origin main", {}, "wt", True),
+    ("script wrapper", BASH, "script -q /dev/null git push origin main", {}, "wt", True),
+    # gh api clusters
+    ("gh api -iXPUT", BASH, "gh api -iXPUT repos/o/app/pulls/1/merge", {}, "wt", True),
+    ("gh api -iX DELETE", BASH, "gh api -iX DELETE repos/o/app/git/refs/heads/main", {}, "wt", True),
+    ("gh api --input=", BASH, "gh api repos/o/app/pulls --input=b.json", {}, "wt", True),
+    # braces and ~user in paths
+    ("brace .env read", BASH, "cat {.e,}nv", {}, "wt", True),
+    ("brace secrets read", BASH, "cat %HOME%/secret{s,x}/linear", {}, "wt", True),
+    ("brace tee escape", BASH, "tee /tmp/{x,../Users/%ME%/.bashrc} </dev/null", {}, "wt", True),
+    ("~user redirect", BASH, "echo x > ~%ME%/.bashrc", {}, "wt", True),
+    # readers that write
+    ("curl glued -o", BASH, "curl -o/Users/%ME%/.bashrc http://example.com", {}, "wt", True),
+    ("curl --output=", BASH, "curl --output=/Users/%ME%/.bashrc http://example.com", {}, "wt", True),
+    ("wget -O outside", BASH, "wget -O%REPO_ROOT%/x http://example.com", {}, "wt", True),
+    ("sed w command", BASH, "sed -n 'w /Users/%ME%/.bashrc' app.py", {}, "wt", True),
+    ("sed s///w flag", BASH, "sed 's/a/b/w /tmp/x' app.py", {}, "wt", True),
+    ("sed e command", BASH, "sed '1e id' app.py", {}, "wt", True),
+    ("awk redirect", BASH, "awk '{print > \"/Users/%ME%/.bashrc\"}' app.py", {}, "wt", True),
+    ("awk system", BASH, "awk 'BEGIN{system(\"id\")}'", {}, "wt", True),
+    ("sort -o", BASH, "sort -o /Users/%ME%/.bashrc app.py", {}, "wt", True),
+    ("uniq output file", BASH, "uniq app.py /Users/%ME%/.bashrc", {}, "wt", True),
+    ("perl -i", BASH, "perl -pi -e 's/a/b/' app.py", {}, "wt", True),
+    ("rsync outside", BASH, "rsync -a . %REPO_ROOT%/x", {}, "wt", True),
+    ("tar extract outside", BASH, "tar -xzf a.tgz -C %REPO_ROOT%", {}, "wt", True),
+    ("unzip outside", BASH, "unzip a.zip -d %REPO_ROOT%", {}, "wt", True),
+    ("patch in another dir", BASH, "patch -d %REPO_ROOT% -p1 -i x.diff", {}, "wt", True),
+    ("curl -K", BASH, "curl -K /tmp/cfg", {}, "wt", True),
+    ("curl -sK cluster", BASH, "curl -sK /tmp/cfg", {}, "wt", True),
+    ("wget -i", BASH, "wget -i urls.txt", {}, "wt", True),
+    ("wget -e", BASH, "wget -e robots=off http://example.com", {}, "wt", True),
+    # inline code naming secrets
+    ("python names secrets", BASH, "python3 -c 'print(open(\"%HOME%/secrets/linear\").read())'", {}, "wt", True),
+    ("node names .env", BASH, "node -e \"require('fs').readFileSync('.env')\"", {}, "wt", True),
+    ("python names shopfloor home", BASH, "python3 -c 'import os; os.listdir(\"%HOME%\")'", {}, "wt", True),
+    # tools and narrowed roots
+    ("mcp tool", "mcp__x__y", {"a": 1}, {}, "wt", True),
+    ("unknown tool", "Frobnicate", {}, {}, "wt", True),
+    ("MultiEdit outside", "MultiEdit", {"file_path": "~/.bashrc", "edits": []}, {}, "wt", True),
+    ("Write commands.jsonl", WRITE, {"file_path": "%STATE%/commands.jsonl", "content": "x"}, {}, "wt", True),
+    ("Write commands.cursor", WRITE, {"file_path": "%STATE%/commands.cursor", "content": "x"}, {}, "wt", True),
+    ("Write runs.jsonl", WRITE, {"file_path": "%STATE%/runs.jsonl", "content": "x"}, {}, "wt", True),
+    ("Write lessons.json", WRITE, {"file_path": "%STATE%/lessons.json", "content": "x"}, {}, "wt", True),
+    ("Write ticket state.json", WRITE, {"file_path": "%STATE%/tickets/ENG-1/state.json", "content": "x"}, {}, "wt", True),
+    ("Write ticket lock", WRITE, {"file_path": "%STATE%/tickets/ENG-1/state.lock", "content": "x"}, {}, "wt", True),
+    ("Write worktree .claude settings", WRITE, {"file_path": "%WT%/.claude/settings.local.json", "content": "x"},
+     {}, "wt", True),
+    ("Write .git hook", WRITE, {"file_path": "%MAIN%/.git/hooks/pre-push", "content": "x"}, {}, "wt", True),
+    ("Write .git under /tmp", WRITE, {"file_path": "/tmp/r/.git/config", "content": "x"}, {}, "wt", True),
+    ("redirect into .claude", BASH, "echo {} > .claude/settings.json", {}, "wt", True),
+    # the crew's legitimate workflow
+    ("git status", BASH, "git status --short", {}, "wt", False),
+    ("git add commit", BASH, "git add app.py && git commit -m 'feat: x'", {}, "wt", False),
+    ("git fetch", BASH, "git fetch origin", {}, "wt", False),
+    ("git checkout file", BASH, "git checkout -- app.py", {}, "wt", False),
+    ("git rebase on branch", BASH, "git rebase origin/main", {}, "wt", False),
+    ("git log diff show", BASH, "git log --oneline -5 && git diff HEAD~1 --stat && git show HEAD", {}, "wt", False),
+    ("git branch list", BASH, "git branch -a --show-current", {}, "wt", False),
+    ("git config user.name", BASH, "git config user.name Crew", {}, "wt", False),
+    ("git -c user.email", BASH, "git -c user.email=c@example.org commit -m x", {}, "wt", False),
+    ("git -C main status", BASH, "git -C %MAIN% status", {}, "wt", False),
+    ("git stash", BASH, "git stash && git stash pop", {}, "wt", False),
+    ("push crew branch refs/heads", BASH, "git push origin HEAD:refs/heads/shopfloor/eng-1-x", {}, "wt", False),
+    ("gh pr view checks comment", BASH, "gh pr view 7 && gh pr checks 7 && gh pr comment 7 -b ok", {}, "wt", False),
+    ("Write worktree file", WRITE, {"file_path": "%STATE%/worktrees/eng-1/new.py", "content": "x"}, {}, "wt", False),
+    ("MultiEdit worktree", "MultiEdit", {"file_path": "%WT%/app.py", "edits": []}, {}, "wt", False),
+    ("Write ticket notes", WRITE, {"file_path": "%STATE%/tickets/ENG-1/plan.md", "content": "x"}, {}, "wt", False),
+    ("TodoWrite", "TodoWrite", {"todos": []}, {}, "wt", False),
+    ("sed in place inside", BASH, "sed -i '' s/a/b/ app.py", {}, "wt", False),
+    ("sort uniq to stdout", BASH, "sort app.py | uniq -c", {}, "wt", False),
+    ("curl to a temp file", BASH, "curl -sSo /tmp/page.html https://example.org", {}, "wt", False),
+    ("tar create in worktree", BASH, "tar czf out.tgz app.py", {}, "wt", False),
+    ("python script with args", BASH, "python3 -m unittest -q tests", {}, "wt", False),
 ]
 
 
@@ -292,7 +400,8 @@ class GuardTest(unittest.TestCase):
         (cls.wt / "out-link").symlink_to(paths.REPO_ROOT)
         cls.cwds = {"wt": str(cls.wt), "main": str(main), "test": str(cls.test_wt)}
         cls.marks = {"%WT%": str(cls.wt), "%MAIN%": str(main), "%HOME%": str(h),
-                     "%ENGINE%": str(paths.ENGINE_DIR), "%REPO_ROOT%": str(paths.REPO_ROOT)}
+                     "%ENGINE%": str(paths.ENGINE_DIR), "%REPO_ROOT%": str(paths.REPO_ROOT),
+                     "%ME%": os.path.basename(os.path.expanduser("~")), "%STATE%": str(paths.crew_state_dir("demo"))}
         cls.guard = guard
         cls.cfg = config.load_crew("demo")
 
@@ -301,7 +410,9 @@ class GuardTest(unittest.TestCase):
             for k, v in self.marks.items():
                 value = value.replace(k, v)
             return value
-        return {k: self.fill(v) for k, v in value.items()}
+        if isinstance(value, dict):
+            return {k: self.fill(v) for k, v in value.items()}
+        return value
 
     def test_rows(self):
         for label, tool, tool_input, over, cwd_kind, blocked in ROWS:
@@ -365,7 +476,7 @@ class GuardTest(unittest.TestCase):
     def test_hooks_json_registers_guard(self):
         spec = json.loads((GUARD.parent / "hooks.json").read_text())
         (entry,) = spec["hooks"]["PreToolUse"]
-        self.assertEqual(entry["matcher"], "Bash|Read|Edit|Write|Grep|Glob|NotebookEdit")
+        self.assertEqual(entry["matcher"], ".*")
         self.assertEqual(entry["hooks"][0]["command"], 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/guard.py"')
 
 

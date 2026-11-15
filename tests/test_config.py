@@ -84,6 +84,13 @@ class ConfigTest(Base):
         self.assertEqual(got["limits"], config.DEFAULTS["limits"])
         self.assertTrue(got["dryRun"])
 
+    def test_protected_branches_default_to_main_and_master(self):
+        cfg = example()
+        cfg.pop("protectedBranches", None)
+        (self.home / "crews").mkdir()
+        (self.home / "crews" / "demo.json").write_text(json.dumps(cfg))
+        self.assertEqual(config.load_crew("demo")["protectedBranches"], ["main", "master"])
+
     def test_load_crew_lists_every_problem(self):
         cfg = example()
         cfg["id"] = "Bad Id"

@@ -15,6 +15,7 @@ class ConfigError(ValueError):
 
 DEFAULTS = {
     "dryRun": True,
+    "protectedBranches": ["main", "master"],
     "paused": False,
     "autoRecommend": "questions",
     "limits": {

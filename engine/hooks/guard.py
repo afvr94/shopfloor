@@ -15,14 +15,16 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 try:
+    from engine.hooks.shell import SUB, Unparseable, lex, literal, structure
     from engine.lib import config, paths
     from engine.lib.cli import WRITE_COMMANDS
     _IMPORT_ERROR = None
 except Exception as e:  # reported by main(), which then blocks
     _IMPORT_ERROR = e
 
-SUB = "\x00"  # stands in for the output of $( ), backticks or <( ) inside a word
-LIT = "\x01"  # a quoted or escaped $, which the shell never expands
+FREE_TOOLS = {"TodoWrite", "Task", "Agent", "Skill", "WebSearch", "WebFetch", "ExitPlanMode", "BashOutput",
+              "KillShell", "KillBash"}
+BRANCH_PREFIX = "shopfloor/"
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish"}
 LANGS = re.compile(r"(python[\d.]*|node|nodejs|perl|ruby|deno|bun|php)")
 NET_TOOLS = {"curl", "wget", "http", "https", "httpie", "xh", "nc", "ncat", "netcat"}
@@ -38,23 +40,42 @@ WRAP_VALUES = {"sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-
                "caffeinate": {"-t", "-w"}, "exec": {"-a"}}
 KEYWORDS = {"!", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "{", "}"}
 NEVER = {"eval", "alias", "trap", "case", "select", "coproc", "function"}
+DECLARE = {"export", "declare", "typeset", "readonly", "local"}
 ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+TOOL_ENV = re.compile(r"(?:GIT|GH)_")
 WRITERS = {"rm", "rmdir", "touch", "mkdir", "truncate", "unlink", "shred", "mv", "tee", "cp", "install", "ln",
-           "chmod", "chown", "chgrp", "dd", "sed"}
+           "chmod", "chown", "chgrp", "dd", "sed", "awk", "sort", "uniq", "rsync", "tar", "unzip", "patch"}
 WRITER_VALUES = {"cp": {"-t", "--target-directory", "-S", "--suffix"}, "mv": {"-t", "--target-directory", "-S", "--suffix"},
                  "ln": {"-t", "--target-directory", "-S", "--suffix"},
                  "install": {"-t", "--target-directory", "-S", "--suffix", "-m", "-o", "-g", "--mode", "--owner", "--group"},
                  "mkdir": {"-m", "--mode"}, "touch": {"-r", "-t", "-d", "--reference", "--date"},
                  "truncate": {"-s", "-r", "--size", "--reference"}, "shred": {"-n", "-s", "--iterations", "--size"},
-                 "sed": {"-e", "-f", "--expression", "--file"}}
+                 "sed": {"-e", "-f", "--expression", "--file"}, "awk": {"-f", "-v", "-F", "--file"},
+                 "sort": {"-o", "--output", "-k", "-t", "-S", "-T"}, "unzip": {"-d"}, "patch": {"-d", "-o", "-p", "-i"}}
 READERS = {"cat", "head", "tail", "less", "more", "grep", "egrep", "fgrep", "rg", "cp", "source", ".", "base64",
            "xxd", "strings", "od", "hexdump", "sed", "awk", "nl", "tac", "sort", "uniq", "diff", "cut", "jq"}
+SAFE = {"echo", "printf", "ls", "which", "type", "whereis", "man", "wc", "tr", "test", "[", "[[", "true", "false",
+        "basename", "dirname", "realpath", "readlink", "stat", "file", "du", "df", "date", "pwd", "sleep", "cd",
+        "pushd", "popd", "unset", "read", "set", "shift", "return", "exit", "for", "find", "base64"} \
+    | READERS | WRITERS | DECLARE | NET_TOOLS | {"git", "gh", "sf"}
 XARGS_UNSAFE = {"git", "gh", "sf", "find", "eval"} | NET_TOOLS | SHELLS | WRITERS | READERS
 ENV_OK = {".env.example", ".env.sample", ".env.template"}
 GH_READ = {("pr", "view"), ("pr", "list"), ("pr", "checks"), ("pr", "diff"), ("pr", "status"), ("run", "view"),
            ("run", "list"), ("run", "watch"), ("repo", "view"), ("issue", "view"), ("issue", "list"),
            ("auth", "status"), ("workflow", "list"), ("workflow", "view"), ("release", "list"), ("release", "view")}
-REDIR = re.compile(r"&>>|&>|<<<|<<-|<<|<>|<&|>&|>>|>\||<|>")
+GIT_READ = {"", "status", "diff", "log", "show", "rev-parse", "ls-files", "grep", "blame", "merge-base", "describe",
+            "fetch", "shortlog", "show-ref", "rev-list", "branch", "tag", "remote", "config", "worktree"}
+GIT_LOCAL = {"add", "commit", "checkout", "switch", "restore", "reset", "stash", "rebase", "merge", "push",
+             "cherry-pick", "mv", "rm"}
+GIT_GLOBAL_FLAGS = {"--no-pager", "-P", "--no-optional-locks", "--version", "--help", "--literal-pathspecs"}
+GIT_CONFIG_OK = {"user.name", "user.email"}
+BRANCH_LIST_FLAGS = {"-a", "--all", "-r", "--remotes", "-l", "--list", "-v", "-vv", "--verbose", "--show-current",
+                     "--contains", "--no-contains", "--merged", "--no-merged", "--sort", "--format", "-q", "--quiet",
+                     "--color", "--no-color", "--points-at", "--column", "--no-column"}
+TAG_LIST_FLAGS = {"-l", "--list", "-n", "--contains", "--no-contains", "--points-at", "--sort", "--merged",
+                  "--no-merged", "--format", "--column"}
+SED_CMD = re.compile(r"(?:^|[;{}\n])\s*(?:[0-9$]+|/(?:\\.|[^/])*/)?(?:,(?:[0-9$]+|/(?:\\.|[^/])*/))?\s*!?\s*[wWer]\b")
+SED_FLAG = re.compile(r"s(.)(?:\\.|(?!\1).)*\1(?:\\.|(?!\1).)*\1[gpIiMm0-9]*[we]")
 BRACES = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")
 HOME_VARS = re.compile(r"\$(?:\{(HOME|TMPDIR)\}|(HOME|TMPDIR)\b)")
 
@@ -63,220 +84,20 @@ class Blocked(Exception):
     pass
 
 
-class Unparseable(Exception):
-    pass
-
-
 def block(why: str):
     raise Blocked(why)
-
-
-# ---- lexing: words with quotes removed, operators, redirects; substitutions lexed recursively ----
-
-class Word(str):
-    subs: list
-    quoted: bool
-
-
-def _word(chars: list, subs: list, quoted: bool) -> Word:
-    w = Word("".join(chars))
-    w.subs, w.quoted = subs, quoted
-    return w
-
-
-def _subst(s: str, i: int, subs: list) -> int:
-    """s[i] starts $( , <( , >( or a backtick: lex the inner command into subs, return the index after it."""
-    if s[i] == "`":
-        j, buf = i + 1, []
-        while j < len(s) and s[j] != "`":
-            if s[j] == "\\" and j + 1 < len(s):
-                buf.append(s[j + 1] if s[j + 1] in "`\\$" else s[j:j + 2])
-                j += 2
-            else:
-                buf.append(s[j])
-                j += 1
-        if j >= len(s):
-            raise Unparseable
-        subs.append(_lex("".join(buf), 0, None)[0])
-        return j + 1
-    toks, j = _lex(s, i + 2, ")")
-    subs.append(toks)
-    return j
-
-
-def _dq(s: str, i: int, end: str | None, chars: list, subs: list) -> int:
-    """Double-quoted text (or an unquoted heredoc body when end is None)."""
-    while i < len(s):
-        c = s[i]
-        if end and c == end:
-            return i + 1
-        if c == "\\" and i + 1 < len(s) and s[i + 1] in '"\\$`\n':
-            if s[i + 1] != "\n":
-                chars.append(LIT if s[i + 1] == "$" else s[i + 1])
-            i += 2
-        elif (c == "$" and s[i + 1:i + 2] == "(") or c == "`":
-            chars.append(SUB)
-            i = _subst(s, i, subs)
-        else:
-            chars.append(c)
-            i += 1
-    if end:
-        raise Unparseable
-    return i
-
-
-def _heredoc(s: str, i: int, delim: Word, strip: bool) -> int:
-    body = []
-    while i < len(s):
-        j = s.find("\n", i)
-        j = len(s) if j < 0 else j
-        line, i = s[i:j], j + 1
-        if (line.lstrip("\t") if strip else line) == delim:
-            break
-        body.append(line)
-    if not delim.quoted:
-        _dq("\n".join(body), 0, None, [], delim.subs)
-    return i
-
-
-def _lex(s: str, i: int, stop: str | None):
-    toks, word, subs, quoted = [], None, [], False
-    pending, want, depth = [], None, 0
-
-    def flush():
-        nonlocal word, subs, quoted, want
-        if word is None:
-            return
-        w = _word(word, subs, quoted)
-        toks.append(w)
-        if want is not None:
-            pending.append((w, want))
-            want = None
-        word, subs, quoted = None, [], False
-
-    while i < len(s):
-        c, nxt = s[i], s[i + 1:i + 2]
-        if c in " \t":
-            flush()
-            i += 1
-        elif c == "\n":
-            flush()
-            toks.append(("op", ";"))
-            i += 1
-            for delim, strip in pending:
-                i = _heredoc(s, i, delim, strip)
-            pending.clear()
-        elif c == "#" and word is None:
-            j = s.find("\n", i)
-            i = len(s) if j < 0 else j
-        elif c == "'":
-            j = s.find("'", i + 1)
-            if j < 0:
-                raise Unparseable
-            word = (word or []) + list(s[i + 1:j].replace("$", LIT))
-            quoted, i = True, j + 1
-        elif c == '"':
-            word = word or []
-            quoted = True
-            i = _dq(s, i + 1, '"', word, subs)
-        elif c == "\\":
-            if nxt != "\n":
-                word = (word or []) + [LIT if nxt == "$" else nxt or "\\"]
-            i += 2
-        elif (c == "$" and nxt == "(") or c == "`" or (c in "<>" and nxt == "("):
-            word = (word or []) + [SUB]
-            i = _subst(s, i, subs)
-        elif c in "<>" or (c == "&" and nxt == ">"):
-            if word is not None and "".join(word).isdigit() and not quoted:
-                word = None  # a file descriptor number such as the 2 in 2>
-            flush()
-            op = REDIR.match(s, i).group()
-            toks.append(("redir", op))
-            if op in ("<<", "<<-"):
-                want = op == "<<-"
-            i += len(op)
-        elif c in ";&|":
-            flush()
-            two = s[i:i + 2]
-            op = two if two in ("&&", "||", "|&", ";;") else c
-            toks.append(("op", "|" if op in ("|", "|&") else ";"))
-            i += len(op)
-        elif c == "(":
-            flush()
-            toks.append(("op", "("))
-            depth += 1
-            i += 1
-        elif c == ")":
-            flush()
-            if depth:
-                depth -= 1
-                toks.append(("op", ")"))
-            elif stop == ")":
-                return toks, i + 1
-            else:
-                raise Unparseable
-            i += 1
-        else:
-            word = (word or []) + [c]
-            i += 1
-    flush()
-    if stop or depth or want is not None:
-        raise Unparseable
-    return toks, i
-
-
-class Cmd:
-    def __init__(self):
-        self.words, self.redirs = [], []
-
-    def subs(self):
-        return [t for w in self.words + [r[1] for r in self.redirs] for t in w.subs]
-
-
-def _structure(toks: list) -> list:
-    """Group tokens into "(" / ")" markers and pipelines (lists of Cmd)."""
-    items, pipe, cmd, redir = [], [], Cmd(), None
-    for t in toks:
-        if isinstance(t, Word):
-            if redir:
-                cmd.redirs.append((redir, t))
-                redir = None
-            else:
-                cmd.words.append(t)
-            continue
-        if redir:
-            raise Unparseable
-        kind, op = t
-        if kind == "redir":
-            redir = op
-            continue
-        if cmd.words or cmd.redirs:
-            pipe.append(cmd)
-        cmd = Cmd()
-        if op == "|":
-            continue
-        if pipe:
-            items.append(pipe)
-            pipe = []
-        if op in ("(", ")"):
-            items.append(op)
-    if redir:
-        raise Unparseable
-    if cmd.words or cmd.redirs:
-        pipe.append(cmd)
-    if pipe:
-        items.append(pipe)
-    return items
 
 
 # ---- paths ----
 
 def resolve(text: str, cwd: str | None) -> str | None:
     """Absolute real path of a word, or None when it depends on run-time values."""
-    if SUB in text:
+    if SUB in text or BRACES.search(text):
         return None
     if text == "~" or text.startswith("~/"):
         text = os.path.expanduser("~") + text[1:]
+    elif text.startswith("~"):
+        return None  # ~user
     text = HOME_VARS.sub(lambda m: os.environ.get(m.group(1) or m.group(2)) or "$", text)
     if "$" in text:
         return None
@@ -284,7 +105,7 @@ def resolve(text: str, cwd: str | None) -> str | None:
         if cwd is None:
             return None
         text = os.path.join(cwd, text)
-    return os.path.realpath(text)
+    return os.path.realpath(literal(text))
 
 
 def _under(p: str, roots) -> bool:
@@ -301,6 +122,11 @@ def _dynamic(w: str) -> bool:
 
 def _interp(exe: str) -> bool:
     return exe in SHELLS or bool(LANGS.fullmatch(exe))
+
+
+def _runner(w: str) -> bool:
+    name = os.path.basename(w)
+    return name in {"git", "gh", "sf"} | NET_TOOLS or _interp(name)
 
 
 def _positionals(words: list, value_opts: set):
@@ -323,28 +149,39 @@ def _positionals(words: list, value_opts: set):
     return pos, opts
 
 
+def _short_value(words: list, k: int, ch: str) -> str | None:
+    """The value of short option ch inside the cluster words[k] (-sSo file, -ofile), or None."""
+    a = words[k]
+    if a.startswith("--") or not a.startswith("-") or ch not in a[1:]:
+        return None
+    rest = a[a.index(ch, 1) + 1:]
+    return rest or (words[k + 1] if k + 1 < len(words) else "")
+
+
 class Guard:
     def __init__(self, cfg: dict):
         self.dry = cfg.get("dryRun", True) is not False
         flow = cfg.get("gitFlow") or {}
         repos = list((cfg.get("repos") or {}).values())
-        protected = set(cfg.get("protectedBranches") or []) | {r.get("base") for r in repos}
         tb = flow.get("testBranch")
-        self.merge_protected = protected | ({tb} if tb else set())
-        self.push_protected = protected | ({tb} if tb and flow.get("type") != "merge-to-test-branch" else set())
+        self.protected = set(cfg.get("protectedBranches") or []) | {r.get("base") for r in repos} | \
+            ({tb} if tb else set())
         tracker, g = cfg.get("tracker") or {}, cfg.get("guard") or {}
         self.move_targets = {m.split("->")[-1] for m in tracker.get("mayMove", [])}
         home = paths.shopfloor_home()
-        secret = [home / "secrets", *g.get("secretFiles", []), *g.get("offLimits", []),
-                  tracker.get("tokenFile"), (cfg.get("chat") or {}).get("tokenFile")]
+        tokens = [tracker.get("tokenFile"), (cfg.get("chat") or {}).get("tokenFile")]
+        secret = [home / "secrets", *g.get("secretFiles", []), *g.get("offLimits", []), *tokens]
         self.secrets = [os.path.realpath(os.path.expanduser(str(p))) for p in secret if p]
         self.home = os.path.realpath(home)
-        self.state = os.path.realpath(paths.crew_state_dir(cfg["id"]))
-        roots = [self.state, "/tmp", "/private/tmp", os.environ.get("TMPDIR")]
-        self.roots = [os.path.realpath(r) for r in roots if r]
+        state = os.path.realpath(paths.crew_state_dir(cfg["id"]))
+        self.tickets = os.path.join(state, "tickets")
+        self.crew_dirs = [os.path.join(state, "worktrees"), self.tickets]
+        roots = ["/tmp", "/private/tmp", os.environ.get("TMPDIR")]
+        self.roots = self.crew_dirs + [os.path.realpath(r) for r in roots if r]
         self.devices = {os.path.realpath(d) for d in ("/dev/null", "/dev/stdout", "/dev/stderr")} | {"/dev/null"}
-        self.no_write = [os.path.realpath(paths.ENGINE_DIR)] + self.secrets + \
-                        [os.path.realpath(os.path.expanduser(r["path"])) for r in repos if r.get("path")]
+        self.repos = [os.path.realpath(os.path.expanduser(r["path"])) for r in repos if r.get("path")]
+        self.no_write = [os.path.realpath(paths.ENGINE_DIR)] + self.secrets + self.repos
+        self.inline_secrets = [self.home, "secrets", ".env"] + [os.path.expanduser(t) for t in tokens if t]
         self.branch_unknown = False
 
     # -- reads and writes --
@@ -372,18 +209,23 @@ class Guard:
 
     def read(self, text: str, cwd: str | None, tree: bool = False):
         if self.secret(text, cwd, tree):
-            block(f"reading secret or off-limits files is not allowed ({text})")
+            block(f"reading secret or off-limits files is not allowed ({literal(text)})")
 
     def write(self, text: str, cwd: str | None):
         p = resolve(text, cwd)
         if p is None:
-            block(f"can't tell where {text!r} writes")
+            block(f"can't tell where {literal(text)!r} writes")
         if p in self.devices or p.startswith("/dev/fd/"):
             return
-        if _under(p, self.no_write) or (_under(p, [self.home]) and not _under(p, [self.state])):
-            block(f"{p} is off limits (engine, crew config, secrets, main checkouts)")
+        parts = set(p.split("/")) | set(literal(text).split("/"))
+        if ".git" in parts or ".claude" in parts:
+            block(f"{p} is inside .git or .claude, which crews don't write")
+        if _under(p, self.no_write) or (_under(p, [self.home]) and not _under(p, self.crew_dirs)):
+            block(f"{p} is off limits (engine, crew config, crew state, secrets, main checkouts)")
+        if _under(p, [self.tickets]) and (os.path.basename(p) == "state.json" or p.endswith(".lock")):
+            block(f"{p} belongs to sf")
         if not _under(p, self.roots):
-            block(f"writes stay in the crew's worktrees or a temp dir, not {p}")
+            block(f"writes stay in the crew's worktrees, tickets or a temp dir, not {p}")
 
     def search(self, tool: str, ti: dict, cwd: str):
         root = ti.get("path") or cwd
@@ -398,11 +240,11 @@ class Guard:
     # -- Bash --
 
     def check_text(self, text: str, cwd: str | None):
-        self.script(_lex(text, 0, None)[0], cwd)
+        self.script(lex(text, 0, None)[0], cwd)
 
     def script(self, toks: list, cwd: str | None):
         stack = []
-        for item in _structure(toks):
+        for item in structure(toks):
             if item == "(":
                 stack.append(cwd)
             elif item == ")":
@@ -412,7 +254,7 @@ class Guard:
 
     def pipeline(self, pipe: list, cwd: str | None):
         new_cwd, decoded = cwd, False
-        for k, cmd in enumerate(pipe):
+        for cmd in pipe:
             for sub in cmd.subs():
                 self.script(sub, cwd)
             words, here, flags = self.unwrap(cmd.words, cwd)
@@ -430,6 +272,8 @@ class Guard:
         words, flags = list(words), set()
         while words:
             w = words[0]
+            if ASSIGN.match(w) and TOOL_ENV.match(w):
+                block("setting GIT_* or GH_* variables is not allowed")
             if w in KEYWORDS or ASSIGN.match(w):
                 words.pop(0)
                 continue
@@ -468,10 +312,8 @@ class Guard:
                 self.write(target, cwd)
         if not words:
             return cwd
-        if _dynamic(words[0]) or BRACES.search(words[0]) or any(c in words[0] for c in "*?["):
+        if _dynamic(words[0]) or any(c in words[0] for c in "*?["):
             block("can't check a command whose name is built at run time")
-        if exe in ("git", "gh", "sf") and any(BRACES.search(w) for w in words):
-            block(f"brace expansion in {exe} arguments can't be checked")
         if exe in ("cd", "pushd"):
             args = [a for a in words[1:] if a not in ("-L", "-P", "--")]
             return resolve(args[0] if args else "~", cwd) if args[:1] != ["-"] else None
@@ -482,6 +324,12 @@ class Guard:
                 self.read(c, cwd, tree=exe != "ls")
         if exe in NEVER:
             block(f"{exe} can't be checked; run the command directly")
+        if exe in DECLARE and any(TOOL_ENV.match(w) for w in words[1:]):
+            block("setting GIT_* or GH_* variables is not allowed")
+        if exe not in SAFE and not _interp(exe) and any(_runner(w) for w in words[1:]):
+            block(f"{exe} runs another command the guard can't follow; run it directly")
+        if exe in ("git", "gh", "sf") and any(BRACES.search(w) for w in words):
+            block(f"brace expansion in {exe} arguments can't be checked")
         if "xargs" in flags and (exe in XARGS_UNSAFE or _interp(exe)):
             block(f"xargs {exe} gets its arguments at run time, so it can't be checked")
         if "exec" in flags and exe in SHELLS:
@@ -508,15 +356,20 @@ class Guard:
 
     def interp(self, exe: str, words: list, cwd: str | None):
         args = words[1:]
-        text = " ".join(args)
+        text = literal(" ".join(args))
         if any(h in text.lower() for h in HOSTS):
             block(NET_MSG)
-        if exe not in SHELLS and INLINE_GIT.search(text):
-            block("inline code that runs git push/merge or gh can't be checked; run the command directly")
+        if exe not in SHELLS:
+            if INLINE_GIT.search(text):
+                block("inline code that runs git push/merge or gh can't be checked; run the command directly")
+            if any(s in text for s in self.inline_secrets):
+                block("interpreter code that names secrets, .env or the shopfloor home is not allowed")
+            if exe in ("perl", "ruby") and any(re.fullmatch(r"-[A-Za-z]*i.*", a) for a in args):
+                block(f"{exe} -i edits files the guard can't check; use the Edit tool")
         if exe in SHELLS:
             for k, a in enumerate(args):
                 if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a):
-                    code = args[k + 1].replace(LIT, "$") if k + 1 < len(args) else block("shell -c without a command")
+                    code = literal(args[k + 1]) if k + 1 < len(args) else block("shell -c without a command")
                     if SUB in code or "$(" in code or "`" in code:
                         block("shell -c with a substitution can't be checked")
                     return self.check_text(code, cwd)
@@ -532,13 +385,31 @@ class Guard:
             block(f"{exe} reading its program from stdin can't be checked")
 
     def network(self, exe: str, words: list, cwd: str | None):
-        if any(h in " ".join(words).lower() for h in HOSTS):
+        if any(h in literal(" ".join(words)).lower() for h in HOSTS):
             block(NET_MSG)
         if any(SUB in w or "$" in w for w in words[1:]):
             block(f"{exe} with run-time arguments can't be checked")
-        for k, a in enumerate(words[:-1]):
-            if a in ({"-o", "--output"} if exe == "curl" else {"-O", "--output-document"}):
-                self.write(words[k + 1], cwd)
+        curl = exe == "curl"
+        config_opts = ("--config",) if curl else ("--input-file", "--execute", "--config")
+        config_chars = "K" if curl else "ie"
+        out_opts = {"-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar", "--trace", "--trace-ascii",
+                    "--stderr", "--output-dir"} if curl else {"-O", "--output-document", "-o", "--output-file",
+                                                               "-a", "--append-output", "-P", "--directory-prefix"}
+        to_cwd = not curl and exe == "wget"
+        for k, a in enumerate(words[1:], 1):
+            name, eq, val = a.partition("=")
+            if name in config_opts or any(_short_value(words, k, c) is not None for c in config_chars):
+                block(f"{exe} {name} reads options the guard can't check")
+            target = val if eq and name in out_opts else words[k + 1] if a in out_opts and k + 1 < len(words) \
+                else _short_value(words, k, "o" if curl else "O")
+            if target is not None and target != "-":
+                self.write(target, cwd)
+                to_cwd = False
+            if curl and (a in ("-O", "--remote-name", "--remote-name-all") or
+                         (not a.startswith("--") and a.startswith("-") and "O" in a)):
+                to_cwd = True
+        if to_cwd:
+            self.write(".", cwd)
 
     def writes(self, exe: str, words: list, cwd: str | None):
         pos, opts = _positionals(words, WRITER_VALUES.get(exe, set()))
@@ -553,11 +424,58 @@ class Guard:
             targets = pos if any(w.startswith("--reference") for w in words) else pos[1:]
         elif exe == "dd":
             targets = [w[3:] for w in words[1:] if w.startswith("of=")]
-        elif exe == "sed":
-            in_place = any(re.fullmatch(r"-[A-Za-z]*i.*|--in-place.*", w) for w in words[1:])
-            targets = (pos if ("-e" in opts or "-f" in opts or opts) else pos[1:]) if in_place else []
+        elif exe in ("sed", "awk"):
+            targets = self.program(exe, words, pos, opts)
+        elif exe == "sort":
+            targets = [v for k, v in opts.items() if k in ("-o", "--output")]
+        elif exe == "uniq":
+            targets = pos[1:2]
+        elif exe == "rsync":
+            targets = pos[-1:]
+        elif exe == "tar":
+            targets = self.tar(words)
+        elif exe == "unzip":
+            targets = [] if any(a in ("-l", "-p", "-t", "-Z", "-v") for a in words) else [opts.get("-d", ".")]
+        elif exe == "patch":
+            targets = [opts.get("-d", ".")] + ([opts["-o"]] if "-o" in opts else [])
         for t in targets:
             self.write(t, cwd)
+
+    def program(self, exe: str, words: list, pos: list, opts: dict) -> list:
+        if "-f" in opts or "--file" in opts:
+            block(f"{exe} -f runs a program file the guard can't check")
+        progs = [words[k + 1] for k, a in enumerate(words[:-1]) if a in ("-e", "--expression")] + \
+            [a.partition("=")[2] for a in words if a.startswith("--expression=")]
+        files = pos if progs else pos[1:]
+        for prog in map(literal, progs + pos):  # file names are checked too: sed -i '' puts the program there
+            if exe == "awk" and any(t in prog for t in (">", "|", "system", "getline", "close(")):
+                block("awk programs that write, pipe or run commands can't be checked")
+            if exe == "sed" and (SED_CMD.search(prog) or SED_FLAG.search(prog)):
+                block("sed w, r and e commands can't be checked")
+        in_place = exe == "sed" and any(re.fullmatch(r"-[A-Za-z]*i.*|--in-place.*", w) for w in words[1:])
+        return files if in_place else []
+
+    def tar(self, words: list) -> list:
+        mode, archive, dirs, args = "", None, [], words[1:]
+        for k, a in enumerate(args):
+            nxt = args[k + 1] if k + 1 < len(args) else None
+            name, eq, val = a.partition("=")
+            if name == "--file":
+                archive = val if eq else nxt
+            elif name == "--directory":
+                dirs.append(val if eq else nxt)
+            elif name in ("--create", "--append", "--update", "--extract", "--get"):
+                mode += "x" if name in ("--extract", "--get") else "c"
+            elif a == "-C":
+                dirs.append(nxt)
+            elif (a.startswith("-") or k == 0) and re.fullmatch(r"-?[A-Za-z]+", a) and not a.startswith("--"):
+                mode += a
+                if "f" in a:
+                    archive = a[a.index("f") + 1:] or nxt
+        targets = (dirs or ["."]) if "x" in mode else []
+        if any(m in mode for m in "cru"):
+            targets.append(archive or "")
+        return [t for t in targets if t is not None and t != "-"]
 
     def find(self, words: list, cwd: str | None):
         k, roots = 1, []
@@ -595,47 +513,93 @@ class Guard:
         b = out.stdout.strip()
         return b if out.returncode == 0 and b and b != "HEAD" else None
 
+    def current(self, cwd: str | None, loc: list, what: str) -> str:
+        return self.branch(cwd, loc) or block(f"can't tell the current branch for this {what}")
+
     def git(self, words: list, cwd: str | None):
         i, loc = 1, []
         while i < len(words) and words[i].startswith("-"):
-            w, v = words[i], None
-            if w in ("-C", "-c", "--git-dir", "--work-tree") and i + 1 < len(words):
-                v, i = words[i + 1], i + 2
-            elif w.startswith(("--git-dir=", "--work-tree=")):
-                (w, v), i = w.split("=", 1), i + 1
-            else:
+            w = words[i]
+            name, eq, v = w.partition("=")
+            if name in ("--git-dir", "--work-tree") and eq:
+                i += 1
+            elif w in ("-C", "-c", "--git-dir", "--work-tree") and i + 1 < len(words):
+                name, v, i = w, words[i + 1], i + 2
+            elif w in GIT_GLOBAL_FLAGS:
                 i += 1
                 continue
-            if w == "-C":
+            else:
+                block(f"git option {name} is not allowed")
+            if name == "-C":
                 cwd = resolve(v, cwd)
-            elif w == "-c":
-                self.git_key(v.split("=", 1)[0])
-            elif w in ("--git-dir", "--work-tree"):
+            elif name == "-c":
+                self.git_key(v.split("=", 1)[0], write=True)
+            else:
                 p = resolve(v, cwd)
-                loc += [w, p] if p else block(f"can't tell which repo {v!r} is")
+                loc += [name, p] if p else block(f"can't tell which repo {literal(v)!r} is")
         sub, rest = (words[i], words[i + 1:]) if i < len(words) else ("", [])
-        if sub in ("checkout", "switch"):
-            self.branch_unknown = True
-        elif sub == "push":
-            self.push(rest, cwd, loc)
-        elif sub == "merge" and not any(a in ("--abort", "--quit", "--continue") for a in rest):
-            b = self.branch(cwd, loc) or block("can't tell the current branch for this merge")
-            if b in self.merge_protected:
+        if sub not in GIT_READ | GIT_LOCAL:
+            block(f"git {literal(sub).replace(SUB, '$(...)')} is not on the guard's list of git commands")
+        if sub not in GIT_READ and (cwd is None or _under(cwd, self.repos)):
+            block(f"git {sub} in the main checkout is not allowed; work in the ticket worktree")
+        for k, a in enumerate(rest):
+            if a.startswith("--output"):
+                self.write(a.partition("=")[2] or (rest[k + 1] if k + 1 < len(rest) else ""), cwd)
+        getattr(self, "git_" + sub.replace("-", "_"), lambda rest, cwd, loc: None)(rest, cwd, loc)
+
+    def git_checkout(self, rest, cwd, loc):
+        self.branch_unknown = True
+
+    git_switch = git_checkout
+
+    def git_push(self, rest, cwd, loc):
+        self.push(rest, cwd, loc)
+
+    def git_merge(self, rest, cwd, loc):
+        if not any(a in ("--abort", "--quit", "--continue") for a in rest):
+            b = self.current(cwd, loc, "merge")
+            if b in self.protected:
                 block(f"merging into {b} is not allowed; sf merge does that when the flow allows it")
-        elif sub == "remote" and rest[:1] and rest[0] in ("set-url", "add"):
-            block("changing git remotes is not allowed")
-        elif sub == "config":
-            self.git_config(rest)
 
-    def git_key(self, key: str):
-        k = key.lower()
-        if k.startswith(("alias.", "remote.", "url.", "push.", "branch.")) or \
-                k in ("core.hookspath", "core.sshcommand", "core.gitproxy"):
-            block(f"git config {key} is not allowed (aliases, remotes and push settings)")
+    def git_rebase(self, rest, cwd, loc):
+        if any(a in ("-x", "--exec") or a.startswith("--exec=") for a in rest):
+            block("git rebase --exec runs commands the guard can't check")
+        if self.current(cwd, loc, "rebase") in self.protected:
+            block("rebasing a protected branch is not allowed")
 
-    def git_config(self, rest: list):
-        if "--global" in rest or "--system" in rest:
-            block("git config --global/--system is not allowed")
+    def git_reset(self, rest, cwd, loc):
+        if "--hard" in rest and self.current(cwd, loc, "reset") in self.protected:
+            block("git reset --hard on a protected branch is not allowed")
+
+    def git_grep(self, rest, cwd, loc):
+        if any(a == "-O" or a.startswith(("-O", "--open-files-in-pager")) for a in rest):
+            block("git grep -O runs a pager command the guard can't check")
+
+    def git_fetch(self, rest, cwd, loc):
+        if any(a.startswith("--upload-pack") for a in rest):
+            block("git fetch --upload-pack runs commands the guard can't check")
+
+    def git_branch(self, rest, cwd, loc):
+        bad = [a for a in rest if a.startswith("-") and a.partition("=")[0] not in BRANCH_LIST_FLAGS]
+        if bad:
+            block(f"git branch {bad[0]} is not allowed; list or create branches only")
+
+    def git_tag(self, rest, cwd, loc):
+        listing = not rest or any(a in ("-l", "--list") for a in rest)
+        if not listing or any(a.startswith("-") and a.partition("=")[0] not in TAG_LIST_FLAGS for a in rest):
+            block("git tag may only list tags")
+
+    def git_remote(self, rest, cwd, loc):
+        if rest[:1] not in ([], ["-v"], ["--verbose"], ["show"], ["get-url"]):
+            block("git remote may only show remotes")
+
+    def git_worktree(self, rest, cwd, loc):
+        if rest[:1] != ["list"]:
+            block("git worktree may only list worktrees; sf manages them")
+
+    def git_config(self, rest, cwd, loc):
+        if any(a in ("--global", "--system", "--file", "-f", "--blob") or a.startswith("--file=") for a in rest):
+            block("git config outside the repo is not allowed")
         if any(a.startswith("--get") or a in ("-l", "--list") for a in rest):
             return
         pos = [a for a in rest if not a.startswith("-")]
@@ -643,13 +607,15 @@ class Guard:
             return
         if pos[:1] in (["set"], ["unset"]):
             pos = pos[1:]
-        if pos:
-            self.git_key(pos[0])
+        self.git_key(pos[0] if pos else "", write=len(pos) > 1 or any(a.startswith("--") for a in rest))
+
+    def git_key(self, key: str, write: bool):
+        if write and key.lower() not in GIT_CONFIG_OK:
+            block(f"git config {key} is not allowed; only user.name and user.email may be set")
 
     def push(self, rest: list, cwd: str | None, loc: list):
         if self.dry:
             block("dry run: git push is off")
-        force = tags = False
         pos, k = [], 0
         while k < len(rest):
             a = rest[k]
@@ -659,27 +625,25 @@ class Guard:
                 break
             if a.startswith("--"):
                 name = a.split("=", 1)[0]
-                if name in ("--delete", "--mirror", "--all", "--branches", "--prune", "--receive-pack", "--exec", "--repo"):
+                if name in ("--delete", "--mirror", "--all", "--branches", "--prune", "--receive-pack", "--exec",
+                            "--repo", "--tags", "--follow-tags"):
                     block(f"git push {name} is not allowed")
-                force |= name.startswith("--force")
-                tags |= name == "--tags"
                 if name == "--push-option" and "=" not in a:
                     k += 1
             elif a.startswith("-") and len(a) > 1:
                 if "d" in a:
                     block("git push -d is not allowed")
-                force |= "f" in a
                 k += "o" in a
             else:
                 pos.append(a)
-        if tags and force:
-            block("force-pushing tags is not allowed")
         if any(_dynamic(p) for p in pos):
             block("can't check a push target built at run time")
         targets = []
         if len(pos) < 2:
-            b = self.branch(cwd, loc) or block("can't tell the current branch for this push")
-            targets += [b, (self.branch(cwd, loc, "@{push}") or "").partition("/")[2]]
+            targets.append(self.current(cwd, loc, "push"))
+            upstream = self.branch(cwd, loc, "@{push}")
+            if upstream:
+                targets.append(upstream.partition("/")[2])
         for spec in pos[1:]:
             spec = spec[1:] if spec.startswith("+") else spec
             if spec.startswith(":") or "*" in spec:
@@ -687,11 +651,11 @@ class Guard:
             src, _, dst = spec.partition(":")
             dst = dst or src
             if dst in ("HEAD", "@"):
-                dst = self.branch(cwd, loc) or block("can't tell the current branch for this push")
-            targets.append(dst[len("refs/heads/"):] if dst.startswith("refs/heads/") else dst)
+                dst = self.current(cwd, loc, "push")
+            targets.append(re.sub(r"^(refs/)?heads/", "", dst))
         for t in targets:
-            if t in self.push_protected:
-                block(f"pushing to {t} is not allowed; changes land through sf ship")
+            if not re.fullmatch(re.escape(BRANCH_PREFIX) + r"[A-Za-z0-9._/-]+", t) or ".." in t:
+                block(f"pushing to {t or 'that ref'} is not allowed; crews push only {BRANCH_PREFIX}* branches")
 
     def gh(self, words: list):
         pos, k = [], 1
@@ -719,17 +683,16 @@ class Guard:
 
     def gh_api(self, words: list):
         for k, a in enumerate(words):
-            method = None
-            if a in ("-X", "--method"):
-                method = words[k + 1] if k + 1 < len(words) else ""
-            elif a.startswith("--method="):
-                method = a.split("=", 1)[1]
-            elif a.startswith("-X"):
-                method = a[2:]
-            if method is not None and method.upper() != "GET":
-                block(f"gh api {method} writes to GitHub; use sf")
-            if a in ("-f", "-F", "--field", "--raw-field", "--input") or \
-                    a.startswith(("--field=", "--raw-field=", "--input=")) or re.match(r"-[fF].", a):
+            nxt = words[k + 1] if k + 1 < len(words) else ""
+            if a in ("--method", "-X"):
+                if nxt.upper() != "GET":
+                    block(f"gh api {literal(nxt)} writes to GitHub; use sf")
+            elif a.startswith("--method=") and a[9:].upper() != "GET":
+                block("gh api with a non-GET method writes to GitHub; use sf")
+            elif a.upper() != "-XGET" and not a.startswith("--") and a.startswith("-") and \
+                    any(c in a[1:] for c in "XfF"):
+                block("gh api with a method, fields or --input writes to GitHub; use sf")
+            elif a in ("--field", "--raw-field", "--input") or a.startswith(("--field=", "--raw-field=", "--input=")):
                 block("gh api with fields or --input writes to GitHub; use sf")
 
     def sf(self, words: list):
@@ -758,19 +721,21 @@ def decide(tool: str, tool_input: dict, cwd: str, cfg: dict) -> str | None:
     try:
         if not isinstance(tool_input, dict):
             block("tool input is not an object")
+        if tool in FREE_TOOLS:
+            return None
         g = Guard(cfg)
         if tool == "Bash":
             g.check_text(_field(tool_input, "command"), cwd)
         elif tool == "Read":
             g.read(_field(tool_input, "file_path"), cwd)
-        elif tool in ("Edit", "Write"):
+        elif tool in ("Edit", "MultiEdit", "Write"):
             g.write(_field(tool_input, "file_path"), cwd)
         elif tool == "NotebookEdit":
             g.write(_field(tool_input, "notebook_path"), cwd)
         elif tool in ("Grep", "Glob"):
             g.search(tool, tool_input, cwd)
         else:
-            block(f"the guard doesn't know the {tool} tool")
+            block(f"tool not allowed for crews: {tool}")
     except Blocked as e:
         return str(e)
     except (Unparseable, RecursionError, IndexError):
