@@ -1,0 +1,38 @@
+{
+  "id": "demo",
+  "name": "Demo crew",
+  "voice": {"name": "Shopfloor", "style": "plain"},
+  "dryRun": true,
+  "paused": false,
+  "autoRecommend": "questions",
+  "limits": {
+    "maxParallel": 2,
+    "maxFixRounds": 3,
+    "maxNewPerTick": 2,
+    "buildMaxMinutes": 180,
+    "tickMaxMinutes": 60
+  },
+  "schedule": {"start": "07:00", "everyHours": 3, "until": "22:00", "weekdaysOnly": false},
+  "repos": {"app": {"github": "owner/app", "base": "main", "path": "~/code/app"}},
+  "protectedBranches": ["main"],
+  "tracker": {
+    "type": "linear",
+    "tokenFile": "~/.shopfloor/secrets/linear",
+    "linear": {
+      "team": "ENG",
+      "label": "shopfloor",
+      "assignee": null,
+      "holdLabels": ["hold"],
+      "states": {"todo": "Todo", "inProgress": "In Progress", "review": "In Review"}
+    },
+    "mayMove": ["todo->inProgress", "inProgress->review"]
+  },
+  "chat": {
+    "type": "slack",
+    "tokenFile": "~/.shopfloor/secrets/slack",
+    "slack": {"channel": "C0123", "ownerUserId": "U0123"}
+  },
+  "gitFlow": {"type": "pr-only", "testBranch": null, "mergeDenyPaths": []},
+  "policyPacks": [],
+  "guard": {"offLimits": [], "secretFiles": []}
+}
