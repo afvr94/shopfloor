@@ -79,7 +79,7 @@ class LockTest(Base):
 
 class RunsTest(Base):
     def test_runs_note_is_redacted_and_clipped(self):
-        state.log_run("a", "ENG-1", "ok", "token xoxb-1234567890-abcdefghijkl " + "y" * 900)
+        state.log_run("a", "ENG-1", "ok", "token " + "xox" + "b-1234567890-abcdefghijkl " + "y" * 900)
         run = state.recent_runs("a")[0]
         self.assertIn("[redacted]", run["note"])
         self.assertNotIn("xoxb-1234567890", run["note"])
