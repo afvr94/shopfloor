@@ -53,9 +53,12 @@ class GitFlow:
             raise GitFlowError(f"refusing to push protected branch {branch}")
         run(["git", "-C", str(worktree), "push", "-u", "origin", branch])
         try:
-            return json.loads(GH(["pr", "view", branch, "-R", repo["github"], "--json", "url"]))["url"]
-        except ProcError:
-            pass
+            found = json.loads(GH(["pr", "list", "-R", repo["github"], "--head", branch,
+                                   "--state", "open", "--json", "url"]))
+        except (ProcError, ValueError) as e:
+            raise GitFlowError(f"could not look up existing PR for {branch}: {e}") from e
+        if found:
+            return found[0]["url"]
         fd, name = tempfile.mkstemp(suffix=".md")
         try:
             with os.fdopen(fd, "w") as f:
@@ -64,13 +67,21 @@ class GitFlow:
                       "--title", title, "--body-file", name])
         finally:
             os.unlink(name)
-        return out.strip().splitlines()[-1]
+        lines = out.strip().splitlines()
+        if not lines:
+            raise GitFlowError(f"gh pr create printed no URL for {branch}")
+        return lines[-1]
 
     def can_merge(self, repo_name: str, pr: dict) -> tuple[bool, str]:
         return False, "merging is off"
 
     def merge(self, key: str, repo_name: str, pr: dict) -> str:
         raise GitFlowError("merging is off")
+
+    def _require_mergeable(self, repo_name: str, pr: dict) -> None:
+        ok, why = self.can_merge(repo_name, pr)
+        if not ok:
+            raise GitFlowError(f"not merging: {why}")
 
     def _log(self, key: str, note: str) -> str:
         state.log_run(self.crew, key, "merged", note)

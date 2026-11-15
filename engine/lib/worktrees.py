@@ -41,6 +41,10 @@ def _drop(wt: Path, repo_path: str) -> None:
     _git(repo_path, "worktree", "prune", check=False)
 
 
+def _stamp() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
 def _salvage(wt: Path, crew_id: str, key: str, repo_name: str) -> None:
     try:
         _git(wt, "add", "-A", "-N", ".")
@@ -51,8 +55,13 @@ def _salvage(wt: Path, crew_id: str, key: str, repo_name: str) -> None:
         return
     d = paths.ticket_dir(crew_id, key)
     d.mkdir(parents=True, exist_ok=True)
-    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    (d / f"salvage-{repo_name}-{ts}.patch").write_text(patch + "\n")
+    (d / f"salvage-{repo_name}-{_stamp()}.patch").write_text(patch + "\n")
+
+
+def _move_aside(wt: Path, crew_id: str, key: str, repo_name: str) -> None:
+    d = paths.ticket_dir(crew_id, key)
+    d.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(wt), str(d / f"salvage-{repo_name}-{_stamp()}"))
 
 
 def prepare(cfg: dict, key: str, repo_name: str, branch: str) -> Path:
@@ -64,18 +73,25 @@ def prepare(cfg: dict, key: str, repo_name: str, branch: str) -> Path:
     if wt.exists():
         if _healthy(wt, main, branch):
             return wt
-        _salvage(wt, cfg["id"], key, repo_name)
-        _drop(wt, main)
+        if (wt / ".git").exists():
+            _salvage(wt, cfg["id"], key, repo_name)
+            _drop(wt, main)
+        else:
+            _move_aside(wt, cfg["id"], key, repo_name)
     _git(main, "worktree", "prune", check=False)
     wt.parent.mkdir(parents=True, exist_ok=True)
 
     def has(ref: str) -> bool:
         return bool(_git(main, "rev-parse", "--verify", "-q", ref, check=False))
 
-    if has(f"refs/remotes/origin/{branch}"):
-        _git(main, "worktree", "add", "-B", branch, str(wt), f"origin/{branch}")
-    elif has(f"refs/heads/{branch}"):
+    if has(f"refs/heads/{branch}") and (
+        not has(f"refs/remotes/origin/{branch}")
+        or _git(main, "rev-list", f"origin/{branch}..{branch}", check=False)
+    ):
+        # unpushed commits: attach to the local branch rather than reset it
         _git(main, "worktree", "add", str(wt), branch)
+    elif has(f"refs/remotes/origin/{branch}"):
+        _git(main, "worktree", "add", "-B", branch, str(wt), f"origin/{branch}")
     else:
         _git(main, "worktree", "add", "-b", branch, str(wt), f"origin/{repo['base']}")
     return wt

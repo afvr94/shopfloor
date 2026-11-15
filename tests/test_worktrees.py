@@ -63,6 +63,23 @@ class TestPrepare(WorktreeCase):
         self.assertEqual(git(out, "rev-parse", "--abbrev-ref", "HEAD"), "shopfloor/abc-1-x")
         self.assertEqual(len(list(paths.ticket_dir("crew", "ABC-1").glob("salvage-app-*.patch"))), 1)
 
+    def test_prepare_moves_aside_non_git_leftover(self):
+        d = self.wt()
+        d.mkdir(parents=True)
+        (d / "junk.txt").write_text("x")
+        out = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
+        self.assertFalse((out / "junk.txt").exists())
+        (aside,) = paths.ticket_dir("crew", "ABC-1").glob("salvage-app-*")
+        self.assertEqual((aside / "junk.txt").read_text(), "x")
+
+    def test_prepare_keeps_unpushed_local_commits(self):
+        git(self.clone, "checkout", "-b", "shopfloor/abc-1-x")
+        git(self.clone, "push", "origin", "shopfloor/abc-1-x")
+        commit_file(self.clone, "local.txt", "unpushed\n")
+        git(self.clone, "checkout", "main")
+        d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
+        self.assertEqual((d / "local.txt").read_text(), "unpushed\n")
+
     def test_prepare_replaces_worktree_on_wrong_branch_and_saves_changes(self):
         d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/old")
         (d / "new.txt").write_text("precious\n")

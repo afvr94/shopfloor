@@ -18,6 +18,7 @@ class SquashOnGreen(GitFlow):
         return True, "ok"
 
     def merge(self, key: str, repo_name: str, pr: dict) -> str:
+        self._require_mergeable(repo_name, pr)
         out = base.GH(["pr", "merge", str(pr["number"]), "--squash", "--match-head-commit",
                        pr["headRefOid"], "--delete-branch", "-R", self.cfg["repos"][repo_name]["github"]])
         return self._log(key, out.strip() or f"squash-merged #{pr['number']}")

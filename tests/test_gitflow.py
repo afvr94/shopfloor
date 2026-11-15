@@ -78,18 +78,30 @@ class TestChecks(unittest.TestCase):
 class TestShip(GitFlowCase):
     def test_ship_pushes_and_opens_pr_once(self):
         d = self.work()
-        self.gh.answers = {"pr view": ProcError(["gh"], 1, "no pull requests found"),
-                           "pr create": "https://github.com/o/app/pull/5\n"}
+        self.gh.answers = {"pr list": "[]", "pr create": "https://github.com/o/app/pull/5\n"}
         url = self.pf.ship("ABC-1", "app", d, "T", "body")
         self.assertEqual(url, "https://github.com/o/app/pull/5")
         self.assertIn("shopfloor/abc-1-x", git(self.origin, "branch", "--list"))
         create = [c for c in self.gh.calls if c[:2] == ["pr", "create"]][0]
         self.assertIn("--body-file", create)
         self.assertNotIn("body", create)
-        self.gh.answers = {"pr view": json.dumps({"url": "https://github.com/o/app/pull/5"})}
+        self.gh.answers = {"pr list": json.dumps([{"url": "https://github.com/o/app/pull/5"}])}
         self.gh.calls.clear()
         self.assertEqual(self.pf.ship("ABC-1", "app", d, "T", "body"), "https://github.com/o/app/pull/5")
         self.assertEqual([c for c in self.gh.calls if c[:2] == ["pr", "create"]], [])
+
+    def test_ship_lookup_failure_does_not_create_duplicate(self):
+        d = self.work()
+        self.gh.answers = {"pr list": ProcError(["gh"], 1, "boom")}
+        with self.assertRaises(base.GitFlowError):
+            self.pf.ship("ABC-1", "app", d, "T", "b")
+        self.assertEqual([c for c in self.gh.calls if c[:2] == ["pr", "create"]], [])
+
+    def test_ship_empty_create_output_raises(self):
+        d = self.work()
+        self.gh.answers = {"pr list": "[]", "pr create": "\n"}
+        with self.assertRaises(base.GitFlowError):
+            self.pf.ship("ABC-1", "app", d, "T", "b")
 
     def test_ship_refuses_protected_and_base(self):
         git(self.clone, "checkout", "-b", "parked")
@@ -123,6 +135,16 @@ class TestSquash(GitFlowCase):
                          (False, "touches infra/deploy.yml"))
         self.assertEqual(self.pf.can_merge("app", {**PR, "files": ["infra/deploy.yml"]})[1], "touches infra/deploy.yml")
 
+    def test_squash_merge_refuses_when_not_mergeable(self):
+        with self.assertRaises(base.GitFlowError):
+            self.pf.merge("ABC-1", "app", {**PR, "isDraft": True})
+        self.assertEqual(self.gh.calls, [])
+
+    def test_unknown_type(self):
+        with self.assertRaises(base.GitFlowError) as ctx:
+            gitflow.make_gitflow({**self.cfg, "gitFlow": {"type": "yolo"}})
+        self.assertIn("pr-only", str(ctx.exception))
+
     def test_squash_pins_head_sha(self):
         self.gh.answers = {"pr merge": "Merged\n"}
         out = self.pf.merge("ABC-1", "app", PR)
@@ -135,10 +157,35 @@ class TestSquash(GitFlowCase):
 class TestMergeToTest(GitFlowCase):
     flow = "merge-to-test-branch"
     test_branch = "staging"
+    deny = ["infra/*"]
+
+    def pr(self, **kw):
+        oid = git(self.origin, "rev-parse", "shopfloor/abc-1-x")
+        return {**PR, "headRefOid": oid, **kw}
+
+    def test_can_merge_table(self):
+        flow = self.pf
+        self.assertEqual(flow.can_merge("app", PR), (True, "ok"))
+        for over, why in [
+            ({"isDraft": True}, "draft"),
+            ({"files": [{"path": "infra/a.yml"}]}, "touches infra/a.yml"),
+            ({"statusCheckRollup": [{"conclusion": "FAILURE"}]}, "checks not green"),
+            ({"statusCheckRollup": [{"status": "IN_PROGRESS", "conclusion": ""}]}, "checks not green"),
+            ({"statusCheckRollup": []}, "checks not green"),
+        ]:
+            self.assertEqual(flow.can_merge("app", {**PR, **over}), (False, why))
+        self.cfg["gitFlow"]["testBranch"] = None
+        self.assertEqual(flow.can_merge("app", PR), (False, "no testBranch configured"))
+
+    def test_merge_refuses_when_not_mergeable(self):
+        self.work()
+        with self.assertRaises(base.GitFlowError):
+            self.pf.merge("ABC-1", "app", self.pr(isDraft=True))
+        self.assertEqual(git(self.origin, "rev-list", "--count", "staging"), "1")
 
     def test_merge_to_test_branch_no_ff_in_own_worktree(self):
         self.work()
-        out = self.pf.merge("ABC-1", "app", {**PR, "headRefName": "shopfloor/abc-1-x"})
+        out = self.pf.merge("ABC-1", "app", self.pr())
         self.assertRegex(out, r"^merged shopfloor/abc-1-x into staging at [0-9a-f]{7}$")
         self.assertEqual(len(git(self.origin, "rev-list", "--parents", "-n1", "staging").split()), 3)
         self.assertTrue((paths.worktrees_dir("crew") / "_test" / "app").is_dir())
@@ -152,8 +199,9 @@ class TestMergeToTest(GitFlowCase):
         commit_file(other, "README", "theirs\n")
         git(other, "push", "origin", "staging")
         before = git(self.origin, "rev-parse", "staging")
-        with self.assertRaises(base.GitFlowError):
-            self.pf.merge("ABC-1", "app", {**PR, "headRefName": "shopfloor/abc-1-x"})
+        with self.assertRaises(base.GitFlowError) as ctx:
+            self.pf.merge("ABC-1", "app", self.pr())
+        self.assertIn("README", str(ctx.exception))
         self.assertEqual(git(self.origin, "rev-parse", "staging"), before)
         self.assertEqual(git(paths.worktrees_dir("crew") / "_test" / "app", "status", "--porcelain"), "")
 

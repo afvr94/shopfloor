@@ -9,4 +9,7 @@ FLOWS = {"pr-only": PrOnly, "squash-on-green": SquashOnGreen, "merge-to-test-bra
 
 
 def make_gitflow(cfg: dict) -> GitFlow:
-    return FLOWS[cfg["gitFlow"]["type"]](cfg)
+    t = cfg["gitFlow"]["type"]
+    if t not in FLOWS:
+        raise GitFlowError(f"unknown gitFlow type {t!r}; valid: {', '.join(FLOWS)}")
+    return FLOWS[t](cfg)

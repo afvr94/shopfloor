@@ -13,11 +13,14 @@ class MergeToTestBranch(GitFlow):
             return False, "no testBranch configured"
         if pr.get("isDraft"):
             return False, "draft"
+        if not base.checks_green(pr.get("statusCheckRollup") or []):
+            return False, "checks not green"
         hit = base.denied_path(pr, self.flow["mergeDenyPaths"])
         return (False, f"touches {hit}") if hit else (True, "ok")
 
     def merge(self, key: str, repo_name: str, pr: dict) -> str:
-        test, head = self.flow["testBranch"], pr["headRefName"]
+        self._require_mergeable(repo_name, pr)
+        test, head, oid = self.flow["testBranch"], pr["headRefName"], pr["headRefOid"]
         main = self.cfg["repos"][repo_name]["path"]
         wt = paths.worktrees_dir(self.crew) / "_test" / repo_name
 
@@ -32,10 +35,14 @@ class MergeToTestBranch(GitFlow):
                 run(["git", "-C", main, "worktree", "add", "--detach", str(wt), f"origin/{test}"])
             g("checkout", "-f", "-B", test, f"origin/{test}")
             try:
-                g("merge", "--no-ff", f"origin/{head}", "-m", f"Merge {head} into {test} ({key})")
+                g("merge", "--no-ff", oid, "-m", f"Merge {head} into {test} ({key})")
             except ProcError as e:
+                conflicts = run(["git", "-C", str(wt), "diff", "--name-only", "--diff-filter=U"], check=False).strip()
                 run(["git", "-C", str(wt), "merge", "--abort"], check=False)
-                raise GitFlowError(f"merge of {head} into {test} failed: {e.stderr.strip()[:200]}") from e
+                raise GitFlowError(
+                    f"merge of {head} into {test} failed: {e.stderr.strip()[:200]}"
+                    f" conflicts: {conflicts.replace(chr(10), ', ') or 'none listed'}"
+                ) from e
             g("push", "origin", test)
             sha = g("rev-parse", "--short=7", "HEAD")
         except ProcError as e:
