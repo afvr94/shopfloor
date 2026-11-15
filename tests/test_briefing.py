@@ -81,6 +81,22 @@ class Writer(Base):
         d["how"] = ["x" * 1000] * 201
         self.assertTrue(any("200" in e for e in briefing.validate_briefing(d)))
 
+    def test_rejects_newline_pr_url_and_over_caps(self):
+        d = good()
+        d["prs"][0]["url"] += "\n"
+        self.assertTrue(any("prs[0].url" in e for e in briefing.validate_briefing(d)))
+        for key, val in (("diagram", "x" * 6001), ("how", ["s"] * 13), ("files", ["f"] * 31),
+                         ("title", "t" * 201), ("verify", ["v" * 401]), ("risk", "r" * 1501)):
+            d = good()
+            d[key] = val
+            self.assertTrue(briefing.validate_briefing(d), key)
+        d = good()
+        d["prs"] = d["prs"] * 7
+        self.assertTrue(briefing.validate_briefing(d))
+        d = good()
+        d["diagram"] = "x" * 6000
+        self.assertEqual(briefing.validate_briefing(d), [])
+
     def test_url(self):
         self.assertEqual(briefing.briefing_url("c", "K-1"), "http://127.0.0.1:7420/briefing/c/K-1")
         (self.home / "board.json").write_text(json.dumps({"linkBase": "https://b.example/"}))
@@ -117,6 +133,13 @@ class Renderer(unittest.TestCase):
         m = briefing_page.BRIEF_PATH.match("/briefing/crew-a/ENG-12")
         self.assertEqual(m.groups(), ("crew-a", "ENG-12"))
         self.assertIsNone(briefing_page.BRIEF_PATH.match("/briefing/../x"))
+        self.assertIsNone(briefing_page.BRIEF_PATH.fullmatch("/briefing/a/B-1\n"))
+
+    def test_newline_url_not_linked(self):
+        d = good()
+        d["prs"][0]["url"] += "\n"
+        out = briefing_page.render_briefing(d, "c", "K-1")
+        self.assertNotIn("<a ", out)
 
 
 if __name__ == "__main__":

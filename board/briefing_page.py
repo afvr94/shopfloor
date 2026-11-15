@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import re
 
+from engine.lib.briefing import MAX_ITEMS, MAX_LEN, PR_URL
+
+# Callers must use BRIEF_PATH.fullmatch: "$" would accept a trailing newline.
 BRIEF_PATH = re.compile(r"^/briefing/([a-z0-9][a-z0-9-]{0,30})/([A-Za-z0-9][A-Za-z0-9-]{0,19})$")
-PR_URL = re.compile(r"^https://github\.com/[\w.-]+/[\w.-]+/pull/\d+$")
 
 
 def esc(t: object) -> str:
@@ -46,34 +48,34 @@ _MERMAID = ('<script src="/static/mermaid.min.js"></script>'
 
 def render_briefing(data: dict, crew_id: str, key: str) -> str:
     prs = []
-    for p in _list(data.get("prs"))[:6]:
+    for p in _list(data.get("prs"))[:MAX_ITEMS["prs"]]:
         if not isinstance(p, dict):
             continue
         label = esc(f"{p.get('repo', '')} #{p.get('number', '')}".strip())
         url = str(p.get("url") or "")
         prs.append(f'<a href="{esc(url)}" target="_blank" rel="noopener noreferrer">{label}</a>'
-                   if PR_URL.match(url) else label)
+                   if PR_URL.fullmatch(url) else label)
     rows = []
     if data.get("whatWhy"):
-        rows.append(_section("What changed and why", f"<p>{esc(clip(data['whatWhy'], 1500))}</p>"))
+        rows.append(_section("What changed and why", f"<p>{esc(clip(data['whatWhy'], MAX_LEN['whatWhy']))}</p>"))
     if _list(data.get("how")):
-        rows.append(_section("How it works now", _ul("ol", _list(data["how"])[:12])))
+        rows.append(_section("How it works now", _ul("ol", _list(data["how"])[:MAX_ITEMS["how"]], MAX_LEN["how"])))
     diagram = str(data.get("diagram") or "").strip()
-    if diagram and len(diagram) < 6000:
+    if diagram and len(diagram) <= MAX_LEN["diagram"]:
         rows.append(_section("The changed path", f'<pre class="mermaid">{esc(diagram)}</pre>'))
     if data.get("risk"):
-        rows.append(_section("Risk", f"<p>{esc(clip(data['risk'], 1500))}</p>", "risk"))
+        rows.append(_section("Risk", f"<p>{esc(clip(data['risk'], MAX_LEN['risk']))}</p>", "risk"))
     if _list(data.get("verify")):
-        rows.append(_section("How to verify", _ul("ul", _list(data["verify"])[:12])))
+        rows.append(_section("How to verify", _ul("ul", _list(data["verify"])[:MAX_ITEMS["verify"]], MAX_LEN["verify"])))
     if _list(data.get("files")):
-        rows.append(_section("Files", _ul("ul", _list(data["files"])[:30], 300)))
+        rows.append(_section("Files", _ul("ul", _list(data["files"])[:MAX_ITEMS["files"]], MAX_LEN["files"])))
     meta = " · ".join(x for x in (esc(crew_id), esc(key), esc(data.get("size") or "")) if x)
-    title = esc(clip(data.get("title") or key, 200))
+    title = esc(clip(data.get("title") or key, MAX_LEN["title"]))
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Briefing: {esc(key)}</title><style>{_CSS}</style></head><body><main>
 <h1>{title}</h1>
 <div class="meta">{meta}</div><div class="prs">{"".join(prs)}</div>
 {"".join(rows) or "<section><p>This briefing is empty.</p></section>"}
-</main>{_MERMAID if diagram and len(diagram) < 6000 else ""}</body></html>
+</main>{_MERMAID if diagram and len(diagram) <= MAX_LEN["diagram"] else ""}</body></html>
 """
