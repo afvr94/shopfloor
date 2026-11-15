@@ -71,14 +71,30 @@ class LinearTracker:
             issues = self.post(Q_ISSUES, {"filter": flt, "after": after})["issues"]
             out += [t for t in map(_ticket, issues["nodes"]) if not hold & {l.lower() for l in t.labels}]
             if not issues["pageInfo"]["hasNextPage"]:
-                return out
+                return sorted(out, key=lambda t: t.created_at)
             after = issues["pageInfo"]["endCursor"]
 
     def get(self, key: str) -> Ticket:
-        return _ticket(self.post(Q_ISSUE, {"id": key})["issue"])
+        node = self.post(Q_ISSUE, {"id": key}).get("issue")
+        if not node:
+            raise TrackerError(f"issue {key} not found")
+        return _ticket(node)
+
+    def _write(self, query: str, variables: dict, name: str) -> dict:
+        res = self.post(query, variables).get(name)
+        if not res or not res.get("success"):
+            raise TrackerError(f"linear {name} did not succeed")
+        return res
 
     def transition(self, key: str, to_key: str) -> None:
+        if to_key not in self.lin["states"]:
+            raise TrackerError(f"{to_key!r} is not a key of tracker.linear.states")
         t = self.get(key)
+        labels = {l.lower() for l in t.labels}
+        if self.lin["label"].lower() not in labels:
+            raise TrackerError(f"{key} lacks the {self.lin['label']!r} label")
+        if labels & {h.lower() for h in self.lin.get("holdLabels", [])}:
+            raise TrackerError(f"{key} carries a hold label")
         frm = state_key(self.cfg, t.state)
         if frm is None:
             raise TrackerError(f"{key} is in state {t.state!r}, which maps to no tracker.linear.states key")
@@ -87,17 +103,19 @@ class LinearTracker:
         nodes = self.post(Q_STATES, {"filter": {"team": {"key": {"eq": self.lin["team"]}}, "name": {"eq": name}}})["workflowStates"]["nodes"]
         if not nodes:
             raise TrackerError(f"workflow state {name!r} not found in team {self.lin['team']}")
-        self.post(M_UPDATE, {"id": t.id, "stateId": nodes[0]["id"]})
+        self._write(M_UPDATE, {"id": t.id, "stateId": nodes[0]["id"]}, "issueUpdate")
 
     def comment(self, key: str, body: str) -> str:
-        data = self.post(M_COMMENT, {"input": {"issueId": self.get(key).id, "body": body}})
-        return data["commentCreate"]["comment"]["id"]
+        res = self._write(M_COMMENT, {"input": {"issueId": self.get(key).id, "body": body}}, "commentCreate")
+        if not res.get("comment"):
+            raise TrackerError("linear commentCreate returned no comment")
+        return res["comment"]["id"]
 
     def update_comment(self, key: str, comment_id: str, body: str) -> None:
-        self.post(M_COMMENT_UPDATE, {"id": comment_id, "body": body})
+        self._write(M_COMMENT_UPDATE, {"id": comment_id, "body": body}, "commentUpdate")
 
     def link_pr(self, key: str, url: str) -> None:
-        self.post(M_LINK, {"issueId": self.get(key).id, "url": url})
+        self._write(M_LINK, {"issueId": self.get(key).id, "url": url}, "attachmentLinkURL")
 
     def viewer(self) -> str:
         return self.post(Q_VIEWER, {})["viewer"]["name"]

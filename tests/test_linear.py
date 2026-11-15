@@ -73,19 +73,19 @@ class LinearTests(unittest.TestCase):
         self.assertEqual(fake.calls[0][1]["filter"]["assignee"], {"email": {"eq": "a@b.c"}})
 
     def test_transition_checks_maymove(self):
-        fake = FakeLinear([{"issue": issue("ENG-1", state="In Review")}])
+        fake = FakeLinear([{"issue": issue("ENG-1", ["shopfloor"], state="In Review")}])
         with self.assertRaisesRegex(base.TrackerError, "move review->inProgress is not in tracker.mayMove"):
             linear.LinearTracker(CFG, post=fake).transition("ENG-1", "inProgress")
         self.assertEqual(len(fake.calls), 1)
 
     def test_transition_unknown_current_state(self):
-        fake = FakeLinear([{"issue": issue("ENG-1", state="Weird")}])
+        fake = FakeLinear([{"issue": issue("ENG-1", ["shopfloor"], state="Weird")}])
         with self.assertRaisesRegex(base.TrackerError, "Weird"):
             linear.LinearTracker(CFG, post=fake).transition("ENG-1", "inProgress")
 
     def test_transition_resolves_state_id(self):
         fake = FakeLinear([
-            {"issue": issue("ENG-1", state="Todo")},
+            {"issue": issue("ENG-1", ["shopfloor"], state="Todo")},
             {"workflowStates": {"nodes": [{"id": "S1"}]}},
             {"issueUpdate": {"success": True}},
         ])
@@ -95,8 +95,44 @@ class LinearTests(unittest.TestCase):
         self.assertEqual(fake.calls[2][1], {"id": "uuid-ENG-1", "stateId": "S1"})
 
     def test_transition_missing_state(self):
-        fake = FakeLinear([{"issue": issue("ENG-1")}, {"workflowStates": {"nodes": []}}])
+        fake = FakeLinear([{"issue": issue("ENG-1", ["shopfloor"])}, {"workflowStates": {"nodes": []}}])
         with self.assertRaisesRegex(base.TrackerError, "In Progress"):
+            linear.LinearTracker(CFG, post=fake).transition("ENG-1", "inProgress")
+
+    def test_candidates_sorted_oldest_first_across_pages(self):
+        fake = FakeLinear([
+            page([issue("ENG-2", created="2026-03-01T00:00:00Z")], True),
+            page([issue("ENG-1", created="2026-01-01T00:00:00Z"), issue("ENG-3", created="2026-05-01T00:00:00Z")]),
+        ])
+        out = linear.LinearTracker(CFG, post=fake).list_candidates()
+        self.assertEqual([t.key for t in out], ["ENG-1", "ENG-2", "ENG-3"])
+
+    def test_transition_refuses_without_optin_label_or_with_hold(self):
+        for labels, msg in ([["bug"], "lacks"], [["ShopFloor", "HOLD"], "hold"]):
+            fake = FakeLinear([{"issue": issue("ENG-1", labels)}])
+            with self.assertRaisesRegex(base.TrackerError, msg):
+                linear.LinearTracker(CFG, post=fake).transition("ENG-1", "inProgress")
+            self.assertEqual(len(fake.calls), 1)
+
+    def test_transition_unknown_to_key(self):
+        fake = FakeLinear([])
+        with self.assertRaisesRegex(base.TrackerError, "done"):
+            linear.LinearTracker(CFG, post=fake).transition("ENG-1", "done")
+
+    def test_failed_or_null_mutation_payloads_raise(self):
+        iss = {"issue": issue("ENG-1")}
+        cases = [
+            (lambda t: t.comment("ENG-1", "x"), {"commentCreate": {"success": True, "comment": None}}),
+            (lambda t: t.comment("ENG-1", "x"), {"commentCreate": None}),
+            (lambda t: t.update_comment("ENG-1", "C", "x"), {"commentUpdate": {"success": False}}),
+            (lambda t: t.link_pr("ENG-1", "u"), {"attachmentLinkURL": {"success": False}}),
+        ]
+        for call, resp in cases:
+            fake = FakeLinear(lambda q, v, resp=resp: iss if "issue(" in q else resp)
+            with self.assertRaises(base.TrackerError):
+                call(linear.LinearTracker(CFG, post=fake))
+        fake = FakeLinear([{"issue": issue("ENG-1", ["shopfloor"])}, {"workflowStates": {"nodes": [{"id": "S"}]}}, {"issueUpdate": {"success": False}}])
+        with self.assertRaises(base.TrackerError):
             linear.LinearTracker(CFG, post=fake).transition("ENG-1", "inProgress")
 
     def test_get_reports_labels_for_backoff(self):
