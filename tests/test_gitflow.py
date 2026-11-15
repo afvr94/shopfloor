@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+import json
+import os
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from engine.adapters import gitflow
+from engine.adapters.gitflow import base
+from engine.lib import paths, worktrees
+from engine.lib.proc import ProcError
+from tests.gitrepo import IDENT, commit_file, git, make_repo, tmpdir
+
+
+class FakeGH:
+    def __init__(self, answers=None):
+        self.answers = answers or {}
+        self.calls: list[list[str]] = []
+
+    def __call__(self, args):
+        self.calls.append(args)
+        for prefix, ans in self.answers.items():
+            if " ".join(args).startswith(prefix):
+                if isinstance(ans, Exception):
+                    raise ans
+                return ans
+        return ""
+
+
+class GitFlowCase(unittest.TestCase):
+    flow = "pr-only"
+    test_branch = None
+    deny: list = []
+
+    def setUp(self):
+        self.tmp = tmpdir()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        p = mock.patch.dict(os.environ, {**IDENT, "SHOPFLOOR_HOME": str(root / "home")})
+        p.start()
+        self.addCleanup(p.stop)
+        self.origin, self.clone = make_repo(root, extra_branches=["staging"])
+        self.cfg = {
+            "id": "crew", "protectedBranches": ["main", "staging"],
+            "repos": {"app": {"github": "o/app", "base": "main", "path": str(self.clone)}},
+            "gitFlow": {"type": self.flow, "testBranch": self.test_branch, "mergeDenyPaths": self.deny},
+        }
+        self.gh = FakeGH()
+        g = mock.patch.object(base, "GH", self.gh)
+        g.start()
+        self.addCleanup(g.stop)
+        self.pf = gitflow.make_gitflow(self.cfg)
+
+    def work(self, branch="shopfloor/abc-1-x", fname="f.txt", text="x\n"):
+        d = worktrees.prepare(self.cfg, "ABC-1", "app", branch)
+        commit_file(d, fname, text)
+        git(d, "push", "-u", "origin", branch)
+        return d
+
+
+class TestChecks(unittest.TestCase):
+    def test_checks_green(self):
+        ok = [{"conclusion": "SUCCESS"}, {"conclusion": "SKIPPED"}, {"conclusion": "NEUTRAL"}]
+        self.assertTrue(base.checks_green(ok))
+        self.assertFalse(base.checks_green([]))
+        self.assertFalse(base.checks_green(ok + [{"conclusion": "FAILURE"}]))
+        self.assertFalse(base.checks_green([{"status": "IN_PROGRESS", "conclusion": ""}]))
+        self.assertTrue(base.checks_green([{"state": "SUCCESS"}]))
+
+    def test_pr_info(self):
+        gh = FakeGH({"pr view 7": json.dumps({"number": 7})})
+        with mock.patch.object(base, "GH", gh):
+            self.assertEqual(base.pr_info("o/app", 7), {"number": 7})
+        self.assertIn("-R", gh.calls[0])
+
+
+class TestShip(GitFlowCase):
+    def test_ship_pushes_and_opens_pr_once(self):
+        d = self.work()
+        self.gh.answers = {"pr view": ProcError(["gh"], 1, "no pull requests found"),
+                           "pr create": "https://github.com/o/app/pull/5\n"}
+        url = self.pf.ship("ABC-1", "app", d, "T", "body")
+        self.assertEqual(url, "https://github.com/o/app/pull/5")
+        self.assertIn("shopfloor/abc-1-x", git(self.origin, "branch", "--list"))
+        create = [c for c in self.gh.calls if c[:2] == ["pr", "create"]][0]
+        self.assertIn("--body-file", create)
+        self.assertNotIn("body", create)
+        self.gh.answers = {"pr view": json.dumps({"url": "https://github.com/o/app/pull/5"})}
+        self.gh.calls.clear()
+        self.assertEqual(self.pf.ship("ABC-1", "app", d, "T", "body"), "https://github.com/o/app/pull/5")
+        self.assertEqual([c for c in self.gh.calls if c[:2] == ["pr", "create"]], [])
+
+    def test_ship_refuses_protected_and_base(self):
+        git(self.clone, "checkout", "-b", "parked")
+        for b in ("staging", "main"):
+            d = worktrees.prepare(self.cfg, "ABC-2", "app", f"shopfloor/{b}-x")
+            git(d, "checkout", "-B", b)
+            with self.assertRaises(base.GitFlowError):
+                self.pf.ship("ABC-2", "app", d, "T", "b")
+        self.assertEqual(self.gh.calls, [])
+
+
+class TestPrOnly(GitFlowCase):
+    def test_pr_only_never_merges(self):
+        self.assertEqual(self.pf.can_merge("app", {}), (False, "merging is off (pr-only)"))
+
+
+PR = {"number": 9, "headRefName": "shopfloor/abc-1-x", "headRefOid": "deadbeef", "isDraft": False,
+      "mergeable": "MERGEABLE", "statusCheckRollup": [{"conclusion": "SUCCESS"}], "files": [{"path": "src/a.py"}]}
+
+
+class TestSquash(GitFlowCase):
+    flow = "squash-on-green"
+    deny = ["infra/*"]
+
+    def test_squash_requires_green_mergeable_not_draft_no_denied_paths(self):
+        self.assertEqual(self.pf.can_merge("app", PR), (True, "ok"))
+        self.assertFalse(self.pf.can_merge("app", {**PR, "isDraft": True})[0])
+        self.assertFalse(self.pf.can_merge("app", {**PR, "mergeable": "CONFLICTING"})[0])
+        self.assertFalse(self.pf.can_merge("app", {**PR, "statusCheckRollup": []})[0])
+        self.assertEqual(self.pf.can_merge("app", {**PR, "files": [{"path": "infra/deploy.yml"}]}),
+                         (False, "touches infra/deploy.yml"))
+        self.assertEqual(self.pf.can_merge("app", {**PR, "files": ["infra/deploy.yml"]})[1], "touches infra/deploy.yml")
+
+    def test_squash_pins_head_sha(self):
+        self.gh.answers = {"pr merge": "Merged\n"}
+        out = self.pf.merge("ABC-1", "app", PR)
+        self.assertEqual(out, "Merged")
+        call = self.gh.calls[0]
+        self.assertEqual(call[:7], ["pr", "merge", "9", "--squash", "--match-head-commit", "deadbeef", "--delete-branch"])
+        self.assertIn("o/app", call)
+
+
+class TestMergeToTest(GitFlowCase):
+    flow = "merge-to-test-branch"
+    test_branch = "staging"
+
+    def test_merge_to_test_branch_no_ff_in_own_worktree(self):
+        self.work()
+        out = self.pf.merge("ABC-1", "app", {**PR, "headRefName": "shopfloor/abc-1-x"})
+        self.assertRegex(out, r"^merged shopfloor/abc-1-x into staging at [0-9a-f]{7}$")
+        self.assertEqual(len(git(self.origin, "rev-list", "--parents", "-n1", "staging").split()), 3)
+        self.assertTrue((paths.worktrees_dir("crew") / "_test" / "app").is_dir())
+        self.assertEqual(self.gh.calls, [])
+
+    def test_merge_to_test_branch_conflict_aborts(self):
+        self.work(fname="README", text="mine\n")
+        other = Path(self.tmp.name) / "other"
+        git(self.tmp.name, "clone", str(self.origin), str(other))
+        git(other, "checkout", "staging")
+        commit_file(other, "README", "theirs\n")
+        git(other, "push", "origin", "staging")
+        before = git(self.origin, "rev-parse", "staging")
+        with self.assertRaises(base.GitFlowError):
+            self.pf.merge("ABC-1", "app", {**PR, "headRefName": "shopfloor/abc-1-x"})
+        self.assertEqual(git(self.origin, "rev-parse", "staging"), before)
+        self.assertEqual(git(paths.worktrees_dir("crew") / "_test" / "app", "status", "--porcelain"), "")
+
+
+if __name__ == "__main__":
+    unittest.main()
