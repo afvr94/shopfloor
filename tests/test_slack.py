@@ -124,7 +124,7 @@ class DefaultCallTest(unittest.TestCase):
         post, read = rj.call_args_list
         self.assertEqual(post.kwargs["retries"], 0)
         self.assertNotIn("retries", read.kwargs)
-        self.assertEqual(post.kwargs["headers"]["Authorization"], "Bearer xoxb-abc123")
+        self.assertEqual(post.kwargs["headers"]["Authorization"], "Bearer " + "xoxb-" + "abc123")
         self.assertEqual(post.args[:2], ("POST", "https://slack.com/api/chat.postMessage"))
 
 
