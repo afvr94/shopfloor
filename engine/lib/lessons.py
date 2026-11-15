@@ -49,6 +49,10 @@ def _load(path: Path) -> dict:
         raise LessonError(f"cannot read {path}: {e}")
     if not isinstance(data, dict) or not isinstance(data.get("lessons"), list) or not isinstance(data.get("next"), int):
         raise LessonError(f"{path} is not a lessons store")
+    for l in data["lessons"]:
+        if not (isinstance(l, dict) and isinstance(l.get("id"), int) and isinstance(l.get("area"), str)
+                and isinstance(l.get("text"), str) and isinstance(l.get("state"), str)):
+            raise LessonError(f"{path} has a malformed lesson entry")
     return data
 
 
@@ -90,14 +94,18 @@ def _public(l: dict) -> dict:
     return {**l, "id": f"L{l['id']}"}
 
 
+def _check_clean(*fields: str) -> None:
+    for field in fields:
+        kind = find_sensitive(field)
+        if kind:
+            raise LessonError(f"refused: it looks like it contains {kind}; write the rule without it")
+
+
 def _check_text(text: str, source: str) -> str:
     text = " ".join(text.split())
     if not 15 <= len(text) <= 240:
         raise LessonError("a lesson is one sentence of 15-240 characters")
-    for field in (text, source):
-        kind = find_sensitive(field)
-        if kind:
-            raise LessonError(f"refused: it looks like it contains {kind}; write the rule without it")
+    _check_clean(text, source)
     return text
 
 
@@ -142,6 +150,7 @@ def add(crew_id: str, area: str, text: str, source: str) -> dict:
 
 
 def bump(crew_id: str, lesson_id: str, source: str) -> dict:
+    _check_clean(source)
     with _locked(crew_id) as (path, data):
         l = _find_active(data, lesson_id)
         _bump(l, source)

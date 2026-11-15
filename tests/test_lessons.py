@@ -54,6 +54,22 @@ class LessonsTest(unittest.TestCase):
         with self.assertRaisesRegex(lessons.LessonError, "an email address"):
             lessons.edit("crew", l["id"], "Ping jane@example.com when the build is red", "s")
 
+    def test_bump_and_edit_refuse_bad_source(self):
+        lessons.add("crew", "app", TEXT, "s")
+        with self.assertRaisesRegex(lessons.LessonError, "an email address"):
+            lessons.bump("crew", "L1", "ticket from jane@example.com")
+        with self.assertRaisesRegex(lessons.LessonError, "an email address"):
+            lessons.edit("crew", "L1", "Run the formatter before pushing a branch", "from jane@example.com")
+        self.assertEqual(self.stored()["lessons"][0]["count"], 1)
+
+    def test_malformed_entry_raises_lesson_error(self):
+        for entry in ({"text": "x", "area": "a", "state": "active"}, {"id": 1, "text": "x", "state": "active"}, "junk", {"id": 1, "area": "a", "text": "x"}):
+            (paths.crew_state_dir("crew") / "lessons.json").write_text(json.dumps({"next": 2, "lessons": [entry]}))
+            with self.assertRaises(lessons.LessonError):
+                lessons.show("crew")
+            with self.assertRaises(lessons.LessonError):
+                lessons.bump("crew", "L1", "s")
+
     def test_forget_hides_but_keeps(self):
         l = lessons.add("crew", "app", TEXT, "s")
         self.assertEqual(lessons.forget("crew", "l1")["state"], "forgotten")
