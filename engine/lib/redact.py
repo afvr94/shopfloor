@@ -12,6 +12,7 @@ _TOKEN = re.compile(
     r"|\bsk-ant-[\w-]+"
     r"|\bAKIA[0-9A-Z]{16}"
     r"|\bxox[abposr]-[\w-]+"
+    r"|eyJ[\w-]+\.[\w-]+\.[\w-]+"
     r"|eyJ[\w-]{20,}"
 )
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import socket
 import unittest
 import urllib.error
 from unittest import mock
@@ -26,7 +27,8 @@ class FakeResp:
 
 
 def http_error(code, body=b"", headers=None):
-    return urllib.error.HTTPError("http://x", code, "err", headers or {}, io.BytesIO(body))
+    err = urllib.error.HTTPError("http://x", code, "err", headers or {}, io.BytesIO(body))
+    return err
 
 
 class Http(unittest.TestCase):
@@ -34,6 +36,55 @@ class Http(unittest.TestCase):
         p = mock.patch.object(http.time, "sleep")
         self.sleep = p.start()
         self.addCleanup(p.stop)
+
+    def _raiser(self, *excs):
+        # Every raised HTTPError is closed on cleanup, so a missed close in http.py is the only leak.
+        it = iter(excs)
+
+        def fake(req, timeout=None):
+            e = next(it)
+            if isinstance(e, urllib.error.HTTPError):
+                self.addCleanup(e.close)
+            if isinstance(e, Exception):
+                raise e
+            return e
+
+        return fake
+
+    def test_bad_retry_after_falls_back(self):
+        for bad in ("nan", "-5", "soon"):
+            self.sleep.reset_mock()
+            fake = self._raiser(http_error(429, headers={"Retry-After": bad}), FakeResp(b"{}"))
+            with mock.patch.object(http, "_urlopen", fake):
+                http.request_json("GET", "http://x")
+            self.sleep.assert_called_once_with(1)
+
+    def test_transport_error_retried_then_wrapped(self):
+        fake = self._raiser(*[urllib.error.URLError("refused")] * 3)
+        with mock.patch.object(http, "_urlopen", fake):
+            with self.assertRaises(http.HttpError) as cm:
+                http.request_json("GET", "http://x")
+        self.assertIsNone(cm.exception.status)
+        self.assertIn("refused", str(cm.exception))
+        self.assertEqual(self.sleep.call_count, 2)
+
+    def test_socket_timeout_then_success(self):
+        fake = self._raiser(socket.timeout("timed out"), FakeResp(b'{"a": 1}'))
+        with mock.patch.object(http, "_urlopen", fake):
+            self.assertEqual(http.request_json("GET", "http://x"), {"a": 1})
+
+    def test_transport_error_message_redacted(self):
+        fake = self._raiser(*[urllib.error.URLError("bad " + TOKEN)] * 3)
+        with mock.patch.object(http, "_urlopen", fake):
+            with self.assertRaises(http.HttpError) as cm:
+                http.request_json("GET", "http://x")
+        self.assertNotIn(TOKEN, str(cm.exception))
+
+    def test_non_json_body_raises_with_status(self):
+        with mock.patch.object(http, "_urlopen", self._raiser(FakeResp(b"<html>"))):
+            with self.assertRaises(http.HttpError) as cm:
+                http.request_json("GET", "http://x")
+        self.assertEqual(cm.exception.status, 200)
 
     def test_retries_429_with_retry_after(self):
         calls = []

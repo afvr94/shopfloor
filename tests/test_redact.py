@@ -38,6 +38,11 @@ class Redact(unittest.TestCase):
         text = "a@b.co " + TOKENS[0]
         self.assertEqual(redact.find_sensitive(text), redact.TOKEN_KIND)
 
+    def test_redact_whole_jwt(self):
+        head, payload, sig = "ey" + "J" + "h" * 12, "ey" + "J" + "p" * 12, "s" * 12
+        out = redact.redact(f"auth {head}.{payload}.{sig} end")
+        self.assertEqual(out, "auth [redacted] end")
+
     def test_redact_replaces_only_tokens(self):
         out = redact.redact("token " + TOKENS[0] + " ok a@b.co")
         self.assertEqual(out, "token [redacted] ok a@b.co")
