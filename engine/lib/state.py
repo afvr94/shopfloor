@@ -15,7 +15,7 @@ STAGES = ("claimed", "planning", "needs_you", "waiting", "building", "in_review"
           "merged", "done", "stopped", "cancelled")
 ACTIVE = STAGES[:6]
 
-_FIELDS = ("title", "url", "thread", "prs", "branch", "question", "fixRounds")
+_FIELDS = ("title", "url", "thread", "prs", "branch", "question", "fixRounds", "reviewSeen")
 _TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 NOTE_MAX = 500
 
@@ -135,7 +135,7 @@ def recent_runs(crew_id: str, keep: int = 60) -> list[dict]:
 
 def _blank(key: str) -> dict:
     return {"key": key, "title": "", "url": "", "stage": None, "thread": None, "prs": [],
-            "branch": "", "question": "", "fixRounds": 0, "updatedAt": "", "history": []}
+            "branch": "", "question": "", "fixRounds": 0, "reviewSeen": "", "updatedAt": "", "history": []}
 
 
 def load_ticket(crew_id: str, key: str) -> dict:

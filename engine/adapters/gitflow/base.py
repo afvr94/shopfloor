@@ -25,6 +25,17 @@ def _gh(args: list[str]) -> str:
 GH = _gh  # tests replace this seam
 
 
+def gh_with_body(args: list[str], body: str) -> str:
+    """gh with --body-file, so the text never sits in argv."""
+    fd, name = tempfile.mkstemp(suffix=".md")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(body)
+        return GH([*args, "--body-file", name])
+    finally:
+        os.unlink(name)
+
+
 def checks_green(rollup: list[dict]) -> bool:
     return bool(rollup) and all((c.get("conclusion") or c.get("state")) in GREEN for c in rollup)
 
@@ -73,14 +84,8 @@ class GitFlow:
             raise GitFlowError(f"could not look up existing PR for {branch}: {e}") from e
         if found:
             return found[0]["url"]
-        fd, name = tempfile.mkstemp(suffix=".md")
-        try:
-            with os.fdopen(fd, "w") as f:
-                f.write(body)
-            out = GH(["pr", "create", "-R", repo["github"], "--base", repo["base"], "--head", branch,
-                      "--title", title, "--body-file", name])
-        finally:
-            os.unlink(name)
+        out = gh_with_body(["pr", "create", "-R", repo["github"], "--base", repo["base"], "--head", branch,
+                            "--title", title], body)
         lines = out.strip().splitlines()
         if not lines:
             raise GitFlowError(f"gh pr create printed no URL for {branch}")

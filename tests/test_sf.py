@@ -67,10 +67,15 @@ class FakeFlow:
         return "merged it"
 
     def ship(self, key, repo, wt, title, body):
+        self.body = body
         return "https://github.com/o/app/pull/7"
 
+    def push(self, repo, wt):
+        self.pushed = (repo, wt)
+        return "shopfloor/eng-1-x"
 
-class SfTest(unittest.TestCase):
+
+class SfCase(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.home, True)
@@ -107,6 +112,8 @@ class SfTest(unittest.TestCase):
     def runs(self):
         return state.recent_runs("demo")
 
+
+class SfTest(SfCase):
     def test_dry_run_write_does_nothing_and_says_so(self):
         self.write_cfg(dryRun=True)
         code, out, _ = self.sf("tracker", "transition", "ENG-1", "inProgress")
@@ -308,4 +315,178 @@ class SfTest(unittest.TestCase):
 
     def test_write_commands_surface(self):
         self.assertEqual(cli.WRITE_COMMANDS, {("tracker", "transition"), ("tracker", "comment"),
-                                              ("tracker", "link-pr"), ("ship", ""), ("merge", "")})
+                                              ("tracker", "link-pr"), ("ship", ""), ("merge", ""),
+                                              ("push", ""), ("pr", "reply")})
+
+
+class FakeGH:
+    def __init__(self, answers):
+        self.answers, self.calls, self.bodies = answers, [], []
+
+    def __call__(self, args):
+        self.calls.append(args)
+        if "--body-file" in args:
+            self.bodies.append(Path(args[args.index("--body-file") + 1]).read_text())
+        for prefix, ans in self.answers.items():
+            if " ".join(args).startswith(prefix):
+                if isinstance(ans, Exception):
+                    raise ans
+                return ans
+        return ""
+
+
+class SfPrTest(SfCase):
+    def setUp(self):
+        super().setUp()
+        state.save_ticket("demo", "ENG-1", branch="shopfloor/eng-1-x",
+                          prs=[{"repo": "app", "number": 7, "url": "https://github.com/o/app/pull/7"}])
+        self.dir = paths.ticket_dir("demo", "ENG-1")
+
+    def gh(self, answers):
+        fake = FakeGH(answers)
+        p = mock.patch.object(cli.flowbase, "GH", fake)
+        p.start()
+        self.addCleanup(p.stop)
+        return fake
+
+    def test_pr_view_reports_checks_and_new_comments_redacted(self):
+        view = {"state": "OPEN", "mergeable": "MERGEABLE", "isDraft": False, "headRefOid": "abc",
+                "reviewDecision": "CHANGES_REQUESTED",
+                "statusCheckRollup": [{"name": "test", "conclusion": "FAILURE",
+                                       "detailsUrl": "https://github.com/o/app/actions/runs/55/job/1"},
+                                      {"name": "lint", "conclusion": "SUCCESS"}, {"name": "e2e", "status": "IN_PROGRESS"}],
+                "comments": [{"author": {"login": "old"}, "body": "seen", "createdAt": "2026-01-01T00:00:00Z"},
+                             {"author": {"login": "rev"}, "body": f"token {TOKEN}", "createdAt": "2026-01-03T00:00:00Z"}],
+                "reviews": [{"author": {"login": "rev"}, "body": "", "state": "APPROVED", "submittedAt": "2026-01-04"}]}
+        inline = [{"user": {"login": "rev"}, "body": "rename this", "path": "a.py", "line": 3,
+                   "created_at": "2026-01-02T00:00:00Z"}]
+        gh = self.gh({"pr view 7": json.dumps(view), "api repos/o/app/pulls/7/comments": json.dumps(inline)})
+        state.save_ticket("demo", "ENG-1", reviewSeen="2026-01-01T00:00:00Z")
+        code, out, _ = self.sf("pr", "view", "ENG-1")
+        d = json.loads(out)
+        (pr,) = d["prs"]
+        self.assertEqual((code, pr["state"], pr["mergeable"], pr["headRefOid"]), (0, "OPEN", "MERGEABLE", "abc"))
+        self.assertEqual(pr["checks"], {"green": False, "total": 3, "pending": 1, "failing": [
+            {"name": "test", "url": "https://github.com/o/app/actions/runs/55/job/1"}]})
+        self.assertEqual([(c["author"], c.get("path"), c.get("line")) for c in pr["newComments"]],
+                         [("rev", "a.py", 3), ("rev", None, None)])
+        self.assertNotIn("SECRET", out)
+        self.assertEqual(d["latestCommentAt"], "2026-01-03T00:00:00Z")
+        self.assertIn("-R", gh.calls[0])
+
+    def test_pr_log_only_for_runs_on_the_ticket_branch(self):
+        log = "\n".join(f"line {i}" for i in range(500)) + f"\n{TOKEN}"
+        self.gh({"run view 55 -R o/app --json": json.dumps({"headBranch": "shopfloor/eng-1-x"}),
+                 "run view 55 -R o/app --log-failed": log,
+                 "run view 66 -R o/app --json": json.dumps({"headBranch": "main"})})
+        code, out, _ = self.sf("pr", "log", "ENG-1", "55")
+        lines = out.splitlines()
+        self.assertEqual((code, len(lines), lines[-1]), (0, 400, "[redacted]"))
+        code, _, err = self.sf("pr", "log", "ENG-1", "66")
+        self.assertEqual(code, 1)
+        self.assertIn("not a run of ENG-1's branch", err)
+
+    def test_pr_reply_redacts_checks_the_pr_and_honours_dry_run(self):
+        gh = self.gh({"pr comment": "https://github.com/o/app/pull/7#c1\n"})
+        f = self.dir / "reply.md"
+        f.write_text(f"fixed, {TOKEN}")
+        code, out, _ = self.sf("pr", "reply", "ENG-1", "app", "7", "--body-file", str(f))
+        self.assertEqual((code, out.strip()), (0, "https://github.com/o/app/pull/7#c1"))
+        self.assertEqual(gh.bodies, ["fixed, [redacted]"])
+        self.assertEqual(self.sf("pr", "reply", "ENG-1", "app", "8", "--body-file", str(f))[0], 1)
+        self.write_cfg(dryRun=True)
+        code, out, _ = self.sf("pr", "reply", "ENG-1", "app", "7", "--body-file", str(f))
+        self.assertTrue(out.startswith("dry-run: would reply on app#7"), out)
+        self.assertEqual(len(gh.bodies), 1)
+
+    def test_push_dry_run_and_live(self):
+        (paths.worktrees_dir("demo") / "ENG-1" / "app").mkdir(parents=True)
+        self.write_cfg(dryRun=True)
+        code, out, _ = self.sf("push", "ENG-1", "app")
+        self.assertTrue(out.startswith("dry-run: would push ENG-1's branch in app"), out)
+        self.assertEqual(self.runs()[-1]["result"], "dry-run")
+        self.write_cfg(dryRun=False)
+        self.assertEqual(self.sf("push", "ENG-1", "app")[1].strip(), "pushed shopfloor/eng-1-x")
+        self.assertEqual(self.flow.pushed[0], "app")
+
+    def test_ship_redacts_the_pr_body(self):
+        (paths.worktrees_dir("demo") / "ENG-1" / "app").mkdir(parents=True)
+        f = self.dir / "pr-body.md"
+        f.write_text(f"body {TOKEN}")
+        self.sf("ship", "ENG-1", "app", "--title", "t", "--body-file", str(f))
+        self.assertEqual(self.flow.body, "body [redacted]")
+
+    def test_crew_files_must_be_real_files_in_the_write_roots(self):
+        ok = self.dir / "c.md"
+        ok.write_text("hi")
+        link = self.dir / "link.md"
+        link.symlink_to(paths.crew_config_path("demo"))
+        hop = self.dir / "hop"
+        hop.symlink_to(paths.crew_config_path("demo").parent)
+        roots = mock.patch.object(cli, "_write_roots", return_value=[paths.worktrees_dir("demo"), self.dir.parent])
+        roots.start()
+        self.addCleanup(roots.stop)
+        self.assertEqual(self.sf("tracker", "comment", "ENG-1", "--body-file", str(ok))[0], 0)
+        for bad in (link, hop / "demo.json", paths.crew_config_path("demo"), self.secret):
+            with self.subTest(str(bad)):
+                code, _, err = self.sf("tracker", "comment", "ENG-1", "--body-file", str(bad))
+                self.assertEqual(code, 1, err)
+        self.assertEqual(len(self.tracker.calls), 1)
+
+
+class SfGitTest(unittest.TestCase):
+    def setUp(self):
+        from tests.gitrepo import IDENT, make_repo, tmpdir
+        self.tmp = tmpdir()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        env = mock.patch.dict(os.environ, {**IDENT, "SHOPFLOOR_HOME": str(root / "home"), "SHOPFLOOR_CREW": "demo"})
+        env.start()
+        self.addCleanup(env.stop)
+        self.origin, self.main = make_repo(root)
+        secret = root / "tok"
+        secret.write_text(TOKEN)
+        secret.chmod(0o600)
+        cfg = {"id": "demo", "dryRun": False, "tracker": {"type": "linear", "tokenFile": str(secret),
+                                                          "linear": {"team": "ENG", "states": {"todo": "Todo"}}},
+               "chat": {"type": "slack", "tokenFile": str(secret)},
+               "repos": {"app": {"github": "o/app", "base": "main", "path": str(self.main)}}}
+        p = paths.crew_config_path("demo")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(cfg))
+        self.wt = Path(SfCase.sf(self, "worktree", "prepare", "ENG-1", "app", "--branch", "shopfloor/eng-1-x")[1].strip())
+
+    sf = SfCase.sf
+
+    def test_push_pushes_the_ticket_branch_and_refuses_others(self):
+        from tests.gitrepo import commit_file, git
+        commit_file(self.wt, "f.txt", "x\n")
+        self.assertEqual(self.sf("push", "ENG-1", "app")[:2], (0, "pushed shopfloor/eng-1-x\n"))
+        self.assertEqual(git(self.origin, "rev-parse", "shopfloor/eng-1-x"), git(self.wt, "rev-parse", "HEAD"))
+        git(self.wt, "checkout", "-q", "-b", "feature/x")
+        code, _, err = self.sf("push", "ENG-1", "app")
+        self.assertEqual(code, 1)
+        self.assertIn("refusing to push feature/x", err)
+
+    def test_sync_rebases_and_reports_conflicts(self):
+        from tests.gitrepo import commit_file, git
+        commit_file(self.wt, "mine.txt", "mine\n")
+        commit_file(self.main, "theirs.txt", "theirs\n")
+        git(self.main, "push", "-q", "origin", "main")
+        self.assertEqual(self.sf("sync", "ENG-1", "app")[:2], (0, "rebased onto origin/main\n"))
+        self.assertTrue((self.wt / "theirs.txt").exists())
+        commit_file(self.wt, "README", "mine\n")
+        commit_file(self.main, "README", "theirs\n")
+        git(self.main, "push", "-q", "origin", "main")
+        code, _, err = self.sf("sync", "ENG-1", "app")
+        self.assertEqual(code, 1)
+        self.assertIn("conflicts in: README", err)
+        self.assertEqual(git(self.wt, "status", "--porcelain"), "")
+
+    def test_changed_clone_config_is_refused(self):
+        from tests.gitrepo import git
+        git(self.wt, "config", "core.pager", "less")
+        code, _, err = self.sf("sync", "ENG-1", "app")
+        self.assertEqual(code, 1)
+        self.assertIn("clone config changed", err)
+        self.assertEqual(state.recent_runs("demo")[-1]["note"], "clone config changed; refusing")

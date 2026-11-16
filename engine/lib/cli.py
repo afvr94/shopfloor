@@ -6,14 +6,16 @@ import json
 import os
 import re
 import sys
+import tempfile
 
 from engine.adapters.chat import make_chat
 from engine.adapters.chat.base import ChatError, ThreadRef
+from engine.adapters.gitflow import base as flowbase
 from engine.adapters.gitflow import make_gitflow
 from engine.adapters.gitflow.base import GitFlowError, pr_info
 from engine.adapters.tracker import make_tracker
 from engine.adapters.tracker.base import TrackerError, state_key
-from engine.lib import briefing, config, lessons, paths, state, worktrees
+from engine.lib import briefing, config, gitsafe, lessons, paths, state, worktrees
 from engine.lib.commands import CommandQueue, CommandQueueError
 from engine.lib.proc import ProcError
 from engine.lib.redact import redact
@@ -21,10 +23,10 @@ from engine.lib.redact import redact
 FACTORIES = {"tracker": make_tracker, "chat": make_chat, "gitflow": make_gitflow}
 
 WRITE_COMMANDS = {("tracker", "transition"), ("tracker", "comment"), ("tracker", "link-pr"),
-                  ("ship", ""), ("merge", "")}
+                  ("ship", ""), ("merge", ""), ("push", ""), ("pr", "reply")}
 
 _ERRORS = (TrackerError, ChatError, GitFlowError, briefing.BriefingError, lessons.LessonError,
-           config.ConfigError, CommandQueueError, ProcError, ValueError, OSError)
+           config.ConfigError, CommandQueueError, ProcError, gitsafe.ConfigChanged, ValueError, OSError)
 
 
 class Refused(Exception):
@@ -55,6 +57,37 @@ def _repo(cfg: dict, name: str) -> dict:
     if name not in cfg["repos"]:
         raise Refused(f"unknown repo {name!r}; valid: {', '.join(cfg['repos'])}")
     return cfg["repos"][name]
+
+
+def _under(p: str, roots) -> bool:
+    p = p.casefold()  # macOS file systems ignore case
+    return any(p == r.casefold() or p.startswith(r.casefold().rstrip("/") + "/") for r in roots)
+
+
+def _write_roots(cfg: dict) -> list:
+    return [paths.worktrees_dir(cfg["id"]), paths.crew_state_dir(cfg["id"]) / "tickets", tempfile.gettempdir(),
+            "/tmp"]
+
+
+def _crew_file(cfg: dict, path: str) -> str:
+    """A file the crew named, read only if it really sits in the crew's write roots and is no secret."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd) as f:
+        real = os.path.realpath(path)
+        st, opened = os.stat(real), os.fstat(f.fileno())
+        if (st.st_dev, st.st_ino) != (opened.st_dev, opened.st_ino) or \
+                not _under(real, [os.path.realpath(r) for r in _write_roots(cfg)]) or \
+                _under(real, [os.path.realpath(x) for x in config.secret_paths(cfg)]):
+            raise Refused(f"sf reads text only from the crew's worktrees, tickets or temp dirs, not {path}")
+        return f.read()
+
+
+def _clone(cfg: dict, key: str, repo: str):
+    paths.ticket_dir(cfg["id"], key)  # validates the key
+    wt = paths.worktrees_dir(cfg["id"]) / key / repo
+    if not wt.is_dir():
+        raise Refused(f"no worktree for {key} in {repo}; run sf worktree prepare")
+    return wt
 
 
 def _thread(cfg: dict, key: str) -> ThreadRef:
@@ -112,7 +145,7 @@ def h_transition(a, cfg):
 def h_comment(a, cfg):
     if _dry(cfg, a.key, f"comment on {a.key}"):
         return
-    body = sign(redact(open(a.body_file).read()), cfg["voice"]["name"])
+    body = sign(redact(_crew_file(cfg, a.body_file)), cfg["voice"]["name"])
     tracker = _make("tracker", cfg)
     if a.update:
         tracker.update_comment(a.key, a.update, body)
@@ -139,7 +172,7 @@ def h_chat_open(a, cfg):
 
 
 def h_chat_post(a, cfg):
-    print(_make("chat", cfg).post(_thread(cfg, a.key), redact(open(a.text_file).read())))
+    print(_make("chat", cfg).post(_thread(cfg, a.key), redact(_crew_file(cfg, a.text_file))))
 
 
 def h_chat_ask(a, cfg):
@@ -204,8 +237,7 @@ def h_lessons_edit(a, cfg):
 
 
 def h_briefing_write(a, cfg):
-    with open(a.file) as f:
-        print(briefing.write_briefing(cfg["id"], a.key, json.load(f)))
+    print(briefing.write_briefing(cfg["id"], a.key, json.loads(_crew_file(cfg, a.file))))
 
 
 def h_briefing_url(a, cfg):
@@ -229,16 +261,109 @@ def h_ship(a, cfg):
     _repo(cfg, a.repo)
     if _dry(cfg, a.key, f"open a PR for {a.key} in {a.repo}"):
         return
-    wt = paths.worktrees_dir(cfg["id"]) / a.key / a.repo
-    if not wt.is_dir():
-        raise Refused(f"no worktree for {a.key} in {a.repo}; run sf worktree prepare")
-    url = _make("gitflow", cfg).ship(a.key, a.repo, wt, a.title, open(a.body_file).read())
+    wt = _clone(cfg, a.key, a.repo)
+    url = _make("gitflow", cfg).ship(a.key, a.repo, wt, a.title, redact(_crew_file(cfg, a.body_file)))
     m = re.search(r"/pull/(\d+)", url)
     if not m:
         raise Refused(f"could not read a PR number from {url}")
     prs = [p for p in state.load_ticket(cfg["id"], a.key)["prs"] if p.get("url") != url]
     state.save_ticket(cfg["id"], a.key, prs=prs + [{"repo": a.repo, "number": int(m.group(1)), "url": url}])
     print(url)
+
+
+def h_push(a, cfg):
+    _repo(cfg, a.repo)
+    wt = _clone(cfg, a.key, a.repo)
+    if _dry(cfg, a.key, f"push {a.key}'s branch in {a.repo}"):
+        return
+    branch = _make("gitflow", cfg).push(a.repo, wt)
+    state.log_run(cfg["id"], a.key, "pushed", branch)
+    print(f"pushed {branch}")
+
+
+def h_sync(a, cfg):
+    """Fetch and rebase the ticket branch onto origin/<base> outside the sandbox, where the credentials are."""
+    base = _repo(cfg, a.repo)["base"]
+    wt = _clone(cfg, a.key, a.repo)
+    gitsafe.git(wt, "fetch", "--prune", "origin")
+    try:
+        gitsafe.git(wt, "rebase", f"origin/{base}")
+    except ProcError as e:
+        files = gitsafe.git(wt, "diff", "--name-only", "--diff-filter=U", check=False)
+        gitsafe.git(wt, "rebase", "--abort", check=False)
+        raise Refused(f"rebase onto origin/{base} stopped and was undone; "
+                      + (f"conflicts in: {', '.join(files.splitlines())}" if files else e.stderr.strip()[:300]))
+    print(f"rebased onto origin/{base}")
+
+
+FAILED_CHECKS = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"}
+
+
+def _checks(rollup: list[dict]) -> dict:
+    def st(c):
+        return c.get("conclusion") or c.get("state") or c.get("status")
+    failing = [{"name": c.get("name") or c.get("context"), "url": c.get("detailsUrl") or c.get("targetUrl")}
+               for c in rollup if st(c) in FAILED_CHECKS]
+    return {"green": flowbase.checks_green(rollup), "total": len(rollup), "failing": failing,
+            "pending": sum(st(c) not in FAILED_CHECKS | flowbase.GREEN for c in rollup)}
+
+
+def _comments(gh: str, number: int, view: dict, since: str) -> list[dict]:
+    # shortcut: the first 100 inline comments only; page through them if reviews ever run longer
+    inline = json.loads(flowbase.GH(["api", f"repos/{gh}/pulls/{number}/comments?per_page=100"]) or "[]")
+    rows = [{"kind": "inline", "author": (c.get("user") or {}).get("login"), "body": c.get("body") or "",
+             "path": c.get("path"), "line": c.get("line") or c.get("original_line"), "at": c.get("created_at")}
+            for c in inline]
+    rows += [{"kind": "comment", "author": (c.get("author") or {}).get("login"), "body": c.get("body") or "",
+              "at": c.get("createdAt")} for c in view.get("comments") or []]
+    rows += [{"kind": "review", "author": (r.get("author") or {}).get("login"), "body": r.get("body") or "",
+              "state": r.get("state"), "at": r.get("submittedAt")} for r in view.get("reviews") or [] if r.get("body")]
+    return sorted(({**c, "body": redact(c["body"])} for c in rows if (c["at"] or "") > since), key=lambda c: c["at"])
+
+
+def h_pr_view(a, cfg):
+    """The ticket's PRs as JSON, with review comments newer than the ticket's reviewSeen."""
+    t = state.load_ticket(cfg["id"], a.key)
+    if not t["prs"]:
+        raise Refused(f"no PRs recorded for {a.key}")
+    out = []
+    for p in t["prs"]:
+        gh = _repo(cfg, p["repo"])["github"]
+        v = json.loads(flowbase.GH(["pr", "view", str(p["number"]), "-R", gh, "--json",
+                                    "state,mergeable,isDraft,headRefOid,statusCheckRollup,reviewDecision,comments,"
+                                    "reviews"]))
+        out.append({"repo": p["repo"], "number": p["number"], "url": p.get("url"),
+                    **{k: v.get(k) for k in ("state", "mergeable", "isDraft", "headRefOid", "reviewDecision")},
+                    "checks": _checks(v.get("statusCheckRollup") or []),
+                    "newComments": _comments(gh, p["number"], v, t["reviewSeen"])})
+    latest = max((c["at"] for p in out for c in p["newComments"]), default=t["reviewSeen"])
+    _out({"prs": out, "reviewSeen": t["reviewSeen"], "latestCommentAt": latest})
+
+
+def h_pr_log(a, cfg):
+    """Failed-step log of a CI run on the ticket's branch in one of its PR repos: redacted, last 400 lines."""
+    t = state.load_ticket(cfg["id"], a.key)
+    for name in dict.fromkeys(p["repo"] for p in t["prs"]):
+        gh = _repo(cfg, name)["github"]
+        try:
+            run = json.loads(flowbase.GH(["run", "view", str(a.run_id), "-R", gh, "--json", "headBranch"]))
+        except (ProcError, ValueError):
+            continue
+        if t["branch"] and run.get("headBranch") == t["branch"]:
+            log = flowbase.GH(["run", "view", str(a.run_id), "-R", gh, "--log-failed"])
+            print("\n".join(redact(log).splitlines()[-400:]))
+            return
+    raise Refused(f"run {a.run_id} is not a run of {a.key}'s branch in its PR repos")
+
+
+def h_pr_reply(a, cfg):
+    gh = _repo(cfg, a.repo)["github"]
+    if not any(p["repo"] == a.repo and p["number"] == a.number for p in state.load_ticket(cfg["id"], a.key)["prs"]):
+        raise Refused(f"{a.repo}#{a.number} is not one of {a.key}'s PRs")
+    body = redact(_crew_file(cfg, a.body_file))
+    if _dry(cfg, a.key, f"reply on {a.repo}#{a.number}"):
+        return
+    print(flowbase.gh_with_body(["pr", "comment", str(a.number), "-R", gh], body).strip())
 
 
 def h_merge(a, cfg):
@@ -326,6 +451,12 @@ def _spec():
         ("ship", "", h_ship, [k, (("repo",), {}), (("--title",), {"required": True}),
                               (("--body-file",), {"required": True})]),
         ("merge", "", h_merge, [k, (("repo",), {}), (("pr_number",), {"type": int})]),
+        ("push", "", h_push, [k, (("repo",), {})]),
+        ("sync", "", h_sync, [k, (("repo",), {})]),
+        ("pr", "view", h_pr_view, [k]),
+        ("pr", "log", h_pr_log, [k, (("run_id",), {"type": int})]),
+        ("pr", "reply", h_pr_reply, [k, (("repo",), {}), (("number",), {"type": int}),
+                                     (("--body-file",), {"required": True})]),
         ("runs", "log", h_runs_log, [k, (("result",), {}), (("--note",), {"default": ""})]),
         ("runs", "show", h_runs_show, [k]),
         ("build", "start", h_build, [(("keys",), {"nargs": "+"})]),
