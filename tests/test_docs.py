@@ -56,7 +56,8 @@ class Docs(unittest.TestCase):
                       "not a sandbox", "branch protection", "unattended", "127.0.0.1", "never expose",
                       "bubblewrap", "resume", "ticketstate", "o_nofollow", "bundlemaxmb",
                       "claude code's own hardening", "hmac-sha256", "record tampered", "--body-file -",
-                      "detect a write, they don't prevent it"):
+                      "detect a write, they don't prevent it", "secrets/signing/sf.key", "`0500`", "denieddomains",
+                      "not that you chose what it says"):
             self.assertIn(topic, text)
 
 
