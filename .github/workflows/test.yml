@@ -31,5 +31,6 @@ jobs:
           mkdir -p "$HOME"
           git config --global user.name ci
           git config --global user.email ci@example.org
-          python -m unittest -v 2>&1 | tail -40
-          exit "${PIPESTATUS[0]}"
+          # if a test hangs, dump every thread's stack before the job times out
+          ( sleep 480; pkill -ABRT -f "unittest -v" ) &
+          python -X faulthandler -m unittest -v
