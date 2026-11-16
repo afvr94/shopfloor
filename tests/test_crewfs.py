@@ -90,6 +90,18 @@ class Unit(unittest.TestCase):
             crewfs.remove_tree(self.root, "x/b")
         self.assertTrue((self.outside / "b" / "f.txt").exists())
 
+    def test_remove_tree_handles_a_tree_deeper_than_the_stack_and_fd_limits(self):
+        fd = os.open(self.root, os.O_RDONLY)
+        os.mkdir("deep", dir_fd=fd)
+        for _ in range(2000):  # relative mkdirs: the full path would be too long to name
+            nxt = os.open("deep" if _ == 0 else "d", os.O_RDONLY, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+            os.mkdir("d", dir_fd=fd)
+        os.close(fd)
+        crewfs.remove_tree(self.root, "deep")
+        self.assertFalse((self.root / "deep").exists())
+
     def test_write_creates_exclusively_and_replaces_a_planted_link(self):
         target = self.outside / "b" / "f.txt"
         (self.root / "a" / "out").symlink_to(target)

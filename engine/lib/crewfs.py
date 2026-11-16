@@ -165,14 +165,44 @@ def remove_tree(root, rel) -> None:
         return
 
 
+def _ident(fd: int) -> tuple:
+    st = os.fstat(fd)
+    return st.st_dev, st.st_ino
+
+
 def _remove(d: int, name: str, what: str) -> None:
+    """No recursion and one open folder at a time, so neither the stack nor the fd limit bounds the depth. Going
+    back up opens ".." and checks it is the folder we came down from, so a tree moved mid-walk is refused."""
     if not stat.S_ISDIR(os.stat(name, dir_fd=d, follow_symlinks=False).st_mode):
         os.unlink(name, dir_fd=d)
         return
-    fd = _down(d, name, what)
+    trail: list[tuple[str, tuple]] = []  # (name, identity) of each folder above the current one
+    cur, fd = name, _down(d, name, what)
     try:
-        for child in os.listdir(fd):
-            _remove(fd, child, what)
+        while True:
+            sub = None
+            for child in os.listdir(fd):
+                if stat.S_ISDIR(os.stat(child, dir_fd=fd, follow_symlinks=False).st_mode):
+                    sub = sub or child
+                else:
+                    os.unlink(child, dir_fd=fd)
+            if sub is not None:
+                nxt = _down(fd, sub, what)
+                trail.append((cur, _ident(fd)))
+                fd, old = nxt, fd
+                os.close(old)
+                cur = sub
+                continue
+            if not trail:
+                break
+            up = os.open("..", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            fd, old = up, fd
+            os.close(old)
+            parent, ident = trail.pop()
+            if _ident(fd) != ident:
+                raise CrewFsError(f"{what} moved while being removed")
+            os.rmdir(cur, dir_fd=fd)
+            cur = parent
     finally:
         os.close(fd)
     os.rmdir(name, dir_fd=d)
