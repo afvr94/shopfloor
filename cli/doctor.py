@@ -21,6 +21,7 @@ from engine.lib.redact import redact
 
 Row = tuple[bool, str, str]
 SMOKE_SECS = 300
+CLAUDE_MIN = (2, 1, 284)  # the first with the sandbox proxy's local-address check
 SANDBOX_HINT = {
     "darwin": (["sandbox-exec"], "sandbox-exec ships with macOS; check /usr/bin is on PATH"),
     "linux": (["bwrap", "socat"], "install them, e.g. apt install bubblewrap socat"),
@@ -42,6 +43,21 @@ def _guarded(name: str, fn) -> Row:
     except Exception as e:  # noqa: BLE001 - every failure becomes a row
         problem = str(e) or type(e).__name__
     return (not problem, name, redact(problem or ""))
+
+
+def _claude_version() -> str:
+    return proc.run(["claude", "--version"], timeout=30)
+
+
+def version_problem(out: str) -> str | None:
+    want = ".".join(map(str, CLAUDE_MIN))
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", out or "")
+    if not m:
+        return f"can't read a version from `claude --version`; Shopfloor needs {want} or newer"
+    if tuple(map(int, m.groups())) < CLAUDE_MIN:
+        return (f"claude {m.group(0)} is older than {want}, which added the sandbox's local-address check crews "
+                f"rely on to keep off the board; upgrade with: claude update")
+    return None
 
 
 def _secret_row(label: str, path: str) -> Row:
@@ -105,9 +121,28 @@ def live_smoke(cid: str) -> str | None:
     return None
 
 
+def _reach_probe(port: int) -> tuple[str, int]:
+    """The shell line a session runs, and how many attempts it makes. It records $HTTP_PROXY, then tries the
+    stand-in directly, through the proxy by name and by IPv4-mapped IPv6 spellings, and with a raw CONNECT to
+    the decimal form of 127.0.0.1, which a client's URL parser would otherwise normalize away."""
+    def url(host):
+        return f"http://{host}:{port}/healthz"
+    target = f"2130706433:{port}"
+    connect = ("python3 -c \"import os,socket;h,p=os.environ['HTTP_PROXY'].split('//')[-1].strip('/').rsplit(':',1);"
+               "c=socket.create_connection((h,int(p)),5);"
+               f"c.sendall(b'CONNECT {target} HTTP/1.1\\r\\nHost: {target}\\r\\n\\r\\n');c.recv(4096);"
+               "c.sendall(b'GET /healthz HTTP/1.1\\r\\nHost: x\\r\\n\\r\\n');c.recv(4096)\"")
+    tries = [f'curl -gs -m 5 -o /dev/null "{url(h)}"' for h in ("127.0.0.1", "localhost")]
+    tries += [f'curl -gs -m 5 -o /dev/null -x "$HTTP_PROXY" "{url(h)}"'
+              for h in ("127.0.0.1", "[::ffff:127.0.0.1]", "[::ffff:7f00:1]")]
+    tries.append(connect)
+    return 'echo "proxy=$HTTP_PROXY" >> reach.txt; ' + "; ".join(f"{t}; echo rc=$? >> reach.txt" for t in tries), \
+        len(tries)
+
+
 def board_reach(cid: str) -> str | None:
-    """A real sandboxed crew session tries to reach a stand-in for the board on 127.0.0.1, directly and through
-    the sandbox proxy. It passes only if the session ran the probe and nothing reached the stand-in."""
+    """A real sandboxed crew session tries to reach a stand-in for the board on 127.0.0.1 (see _reach_probe). It
+    passes only if the session ran every attempt, had a proxy to go through, and nothing reached the stand-in."""
     hits = []
 
     class Probe(http.server.BaseHTTPRequestHandler):
@@ -122,9 +157,7 @@ def board_reach(cid: str) -> str | None:
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Probe)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     port = server.server_address[1]
-    urls = [f"http://127.0.0.1:{port}/healthz", f"http://localhost:{port}/healthz"]
-    probe = "; ".join([f"curl -s -m 5 -o /dev/null {u}; echo rc=$? >> reach.txt" for u in urls] +
-                      [f'curl -s -m 5 -o /dev/null -x "$HTTP_PROXY" {urls[0]}; echo rc=$? >> reach.txt'])
+    probe, attempts = _reach_probe(port)
     argv, env = runner.claude_invocation(cid, (
         "This is a Shopfloor doctor check of the sandbox's network rules. Use the Bash tool once to run this "
         f"exactly as written, then reply DONE: `{probe}`"))
@@ -136,16 +169,21 @@ def board_reach(cid: str) -> str | None:
             except subprocess.TimeoutExpired:
                 return f"claude did not finish within {SMOKE_SECS}s"
             try:
-                ran = open(os.path.join(d, "reach.txt")).read().split()
+                with open(os.path.join(d, "reach.txt")) as f:
+                    lines = f.read().splitlines()
             except OSError:
-                ran = []
+                lines = []
     finally:
         server.shutdown()
         server.server_close()
     if hits:
         return f"a sandboxed command reached 127.0.0.1:{port} ({len(hits)} requests): crews could reach the board"
-    if len(ran) != 3:
+    ran = [x for x in lines if x.startswith("rc=")]
+    if len(ran) != attempts:
         return f"the session did not run the probe (claude exited {r.returncode}); can't tell"
+    proxy = next((x[len("proxy="):] for x in lines if x.startswith("proxy=")), "")
+    if not proxy.strip():
+        return "the session had no $HTTP_PROXY, so the proxy route was never tried; can't tell"
     return None
 
 
@@ -205,7 +243,7 @@ def _crew_rows(cid: str, deps: dict, live: bool = False) -> list[Row]:
 def check_all(crew_id: str | None, deps: dict | None = None, during_init: bool = False,
               live: bool = False) -> list[Row]:
     d = {"which": shutil.which, "run": proc.run, "tracker": make_tracker, "chat": make_chat, "health": _health,
-         "smoke": live_smoke, "lsremote": ls_remote, "reach": board_reach}
+         "smoke": live_smoke, "lsremote": ls_remote, "reach": board_reach, "version": _claude_version}
     d.update(deps or {})
     which = d["which"]
     rows: list[Row] = [
@@ -213,6 +251,8 @@ def check_all(crew_id: str | None, deps: dict | None = None, during_init: bool =
         (sys.version_info >= (3, 9), "python", "needs 3.9 or newer" if sys.version_info < (3, 9) else ""),
     ]
     rows += [(bool(which(t)), t, "" if which(t) else f"{t} not found on PATH") for t in ("claude", "git", "gh")]
+    if which("claude"):
+        rows.append(_guarded("claude version", lambda: version_problem(d["version"]())))
     rows.append(_guarded("gh auth", lambda: d["run"](["gh", "auth", "status"]) and None))
     tools, hint = SANDBOX_HINT.get(sys.platform, ([], ""))
     absent = [t for t in tools if not which(t)]

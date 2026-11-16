@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import ipaddress
 import json
 import os
 import re
@@ -44,6 +45,7 @@ BOARD_DEFAULTS = {
     "crews": [],
     "pollSeconds": 60,
     "linkBase": None,
+    "allowRemote": False,
 }
 
 PLAIN_STYLE = "Plain, neutral and brief. No jokes, slang or emoji."
@@ -179,9 +181,25 @@ def read_secret(path: str) -> str:
     return value
 
 
+def is_loopback(host: object) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        ip = ipaddress.ip_address(str(host).strip("[]"))
+    except ValueError:
+        return False
+    return ip.is_loopback or bool(getattr(ip, "ipv4_mapped", None) and ip.ipv4_mapped.is_loopback)
+
+
 def load_board() -> dict:
     p = paths.shopfloor_home() / "board.json"
-    return _merge(BOARD_DEFAULTS, _read_json(p, "board config")) if p.exists() else copy.deepcopy(BOARD_DEFAULTS)
+    board = _merge(BOARD_DEFAULTS, _read_json(p, "board config")) if p.exists() else copy.deepcopy(BOARD_DEFAULTS)
+    # The board has no login: anyone who reaches it can queue owner commands.
+    if not is_loopback(board.get("host")) and board.get("allowRemote") is not True:
+        raise ConfigError(f"board.host {board.get('host')!r} is not a loopback address. The board has no login; "
+                          "keep it on 127.0.0.1, or set board.allowRemote to true if you put your own access "
+                          "control in front of it")
+    return board
 
 
 def list_crews() -> list[str]:

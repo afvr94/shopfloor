@@ -112,7 +112,8 @@ What a crew may do with a pull request once it is open. See [SAFETY.md](SAFETY.m
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `board.host` | string | `"127.0.0.1"` | Address the board listens on. Keep it on loopback; see [SAFETY.md](SAFETY.md). |
+| `board.host` | string | `"127.0.0.1"` | Address the board listens on. It must be a loopback address (`127.0.0.0/8`, `::1` or `localhost`) unless `board.allowRemote` is `true`; config loading refuses anything else. See [SAFETY.md](SAFETY.md) section 8. |
+| `board.allowRemote` | boolean | `false` | Set to `true` only if you put your own access control in front of the board: it has no login, and anyone who reaches it can queue owner commands. Without it a non-loopback `board.host` is refused. |
 | `board.port` | integer | `7420` | Port the board listens on. |
 | `board.crews` | string[] | `[]` | Crew ids the board and `install` manage. When empty, every file in `crews/` is used. `init` adds the crew it creates. |
 | `board.labelPrefix` | string | `"dev.shopfloor"` | Prefix for launchd labels (macOS); systemd units are named `shopfloor-*`. |

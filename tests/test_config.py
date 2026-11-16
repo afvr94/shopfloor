@@ -203,7 +203,22 @@ class BoardTest(Base):
     def test_board_defaults(self):
         self.assertEqual(config.load_board(), {
             "host": "127.0.0.1", "port": 7420, "labelPrefix": "dev.shopfloor",
-            "crews": [], "pollSeconds": 60, "linkBase": None})
+            "crews": [], "pollSeconds": 60, "linkBase": None, "allowRemote": False})
+
+    def test_a_non_loopback_host_needs_allow_remote(self):
+        for host in ("127.0.0.1", "127.0.0.2", "localhost", "::1", "[::1]", "::ffff:127.0.0.1"):
+            (self.home / "board.json").write_text(json.dumps({"host": host}))
+            self.assertEqual(config.load_board()["host"], host)
+        for host in ("0.0.0.0", "::", "192.0.2.7", "board.example.com", "::ffff:0.0.0.0"):
+            with self.subTest(host=host):
+                (self.home / "board.json").write_text(json.dumps({"host": host}))
+                with self.assertRaisesRegex(config.ConfigError, "allowRemote"):
+                    config.load_board()
+                (self.home / "board.json").write_text(json.dumps({"host": host, "allowRemote": "yes"}))
+                with self.assertRaisesRegex(config.ConfigError, "allowRemote"):
+                    config.load_board()
+                (self.home / "board.json").write_text(json.dumps({"host": host, "allowRemote": True}))
+                self.assertEqual(config.load_board()["host"], host)
 
     def test_list_crews_prefers_board_json(self):
         (self.home / "crews").mkdir()

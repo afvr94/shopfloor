@@ -108,6 +108,7 @@ class Doctor(unittest.TestCase):
             "health": lambda url: True,
             "lsremote": lambda cfg, name: None,
             "reach": lambda cid: None,
+            "version": lambda: "2.1.284 (Claude Code)",
         }
 
     def rows(self, **kw):
@@ -159,22 +160,40 @@ class Doctor(unittest.TestCase):
             self.assertIn("sandboxed write", doctor.live_smoke("demo"))
 
     def test_board_reach_passes_only_when_the_probe_ran_and_nothing_arrived(self):
-        def blocked(argv, cwd, **kw):
-            self.assertEqual(json.loads(argv[-1])["sandbox"]["network"]["deniedDomains"][2], "127.0.0.1")
-            Path(cwd, "reach.txt").write_text("rc=7\nrc=7\nrc=56\n")
-            return subprocess.CompletedProcess(argv, 0, "DONE", "")
+        def ran(proxy, rc):
+            def run(argv, cwd, **kw):
+                deny = json.loads(argv[-1])["sandbox"]["network"]["deniedDomains"]
+                self.assertTrue({"127.0.0.1", "[::ffff:127.0.0.1]", "[::ffff:7f00:1]", "[::]"} <= set(deny))
+                for form in ("[::ffff:127.0.0.1]", "[::ffff:7f00:1]", "CONNECT 2130706433:", "proxy=$HTTP_PROXY"):
+                    self.assertIn(form, argv[2])
+                Path(cwd, "reach.txt").write_text(f"proxy={proxy}\n" + f"rc={rc}\n" * 6)
+                return subprocess.CompletedProcess(argv, 0, "DONE", "")
+            return run
 
         def leaky(argv, cwd, **kw):
             url = re.search(r"http://127\.0\.0\.1:\d+/healthz", argv[2]).group(0)
             urllib.request.urlopen(url, timeout=5).close()
-            Path(cwd, "reach.txt").write_text("rc=0\nrc=0\nrc=0\n")
-            return subprocess.CompletedProcess(argv, 0, "DONE", "")
+            return ran("http://localhost:9", 0)(argv, cwd)
 
-        for run, want in ((blocked, None), (leaky, "crews could reach the board"),
+        for run, want in ((ran("http://localhost:9", 7), None), (leaky, "crews could reach the board"),
+                          (ran("", 7), "no $HTTP_PROXY"),
                           (lambda argv, cwd, **kw: subprocess.CompletedProcess(argv, 1, "", ""), "did not run")):
             with self.subTest(want=want), mock.patch.object(doctor.subprocess, "run", run):
                 got = doctor.board_reach("demo")
                 self.assertIsNone(got) if want is None else self.assertIn(want, got)
+
+    def test_claude_older_than_the_floor_fails_with_an_upgrade_hint(self):
+        for out, want in (("2.1.284 (Claude Code)", None), ("2.2.0 (Claude Code)", None), ("10.0.1", None),
+                          ("2.1.283 (Claude Code)", "claude update"), ("1.9.999", "claude update"),
+                          ("", "can't read a version")):
+            with self.subTest(out=out):
+                rows = doctor.check_all("demo", {**self.deps(), "version": lambda out=out: out})
+                row = [r for r in rows if r[1] == "claude version"][0]
+                self.assertEqual(row[0], want is None)
+                if want:
+                    self.assertIn(want, row[2])
+        self.missing.add("claude")
+        self.assertNotIn("claude version", [r[1] for r in self.rows()])
 
     def test_a_damaged_signing_key_fails_its_row(self):
         signing.mac("s", {})

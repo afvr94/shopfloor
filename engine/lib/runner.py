@@ -24,7 +24,8 @@ SF_EXCLUDED = ["sf *"]  # Bash rule syntax: sf with or without arguments
 # The board listens on loopback and queues signed owner commands. In bypassPermissions mode the sandbox proxy lets
 # a crew reach any host it hasn't been told to refuse, so loopback is refused by name; deniedDomains holds in every
 # permission mode. allowLocalBinding stays off so a direct connection to localhost is blocked too (macOS).
-LOOPBACK_DENIED = ["localhost", "*.localhost", "127.0.0.1", "0.0.0.0", "[::1]"]
+LOOPBACK_DENIED = ["localhost", "*.localhost", "127.0.0.1", "0.0.0.0", "[::1]",
+                   "[::ffff:127.0.0.1]", "[::ffff:7f00:1]", "[::]", "[::ffff:0.0.0.0]"]
 
 
 class RunnerBusy(Exception):
