@@ -29,8 +29,9 @@ KEYWORDS = {"!", "if", "then", "else", "elif", "fi", "do", "done", "while", "unt
 
 ENV_OK = {"CI", "NODE_ENV", "FORCE_COLOR", "NO_COLOR", "TZ", "LANG", "LC_ALL", "PYTHONDONTWRITEBYTECODE",
           "PYTHONUNBUFFERED", "RUST_BACKTRACE", "DEBUG"}
-ENV_DENY = re.compile(r"(HOME|PATH|EDITOR|VISUAL|PAGER|SHELL|ENV|BASH_ENV|IFS|CDPATH|PROMPT_COMMAND|NODE_OPTIONS"
-                      r"|(XDG|GIT|GH|LD|DYLD)_\w*|PYTHON\w*|npm_config_\w*)", re.IGNORECASE)
+ENV_DENY = re.compile(r"(HOME|PATH|TMPDIR|EDITOR|VISUAL|PAGER|SHELL|ENV|IFS|CDPATH|PROMPT_COMMAND|NODE_OPTIONS"
+                      r"|PS\d|ZDOTDIR|FPATH|(XDG|GIT|GH|LD|DYLD|BASH)_\w*|PYTHON\w*|npm_config_\w*)", re.IGNORECASE)
+READ_VALUES = {"-d", "-i", "-n", "-N", "-p", "-t", "-u"}  # -a takes the array name
 ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=")
 
 WRITER_VALUES = {"cp": {"-t", "--target-directory", "-S", "--suffix"}, "mv": {"-t", "--target-directory", "-S", "--suffix"},
@@ -47,6 +48,76 @@ GIT_READ = {"", "status", "diff", "log", "show", "rev-parse", "ls-files", "grep"
             "fetch", "shortlog", "show-ref", "rev-list", "branch", "tag", "remote", "config", "worktree"}
 GIT_LOCAL = {"add", "commit", "checkout", "switch", "restore", "reset", "stash", "rebase", "merge", "push",
              "cherry-pick", "mv", "rm"}
+_DIFF = {"--stat", "--numstat", "--shortstat", "--name-only", "--name-status", "--cached", "--staged", "--no-index",
+         "--color", "--no-color", "--word-diff", "--unified", "--patch", "--no-patch", "--exit-code", "--quiet",
+         "--summary", "--dirstat", "--check", "--ignore-all-space", "--ignore-space-change", "--diff-filter",
+         "--relative", "--find-renames", "--merge-base", "--compact-summary", "--minimal", "--histogram",
+         "--patience", "--no-ext-diff", "--text", "--binary", "--abbrev", "--full-index", "--no-renames", "--raw"}
+_LOG = _DIFF | {"--oneline", "--graph", "--decorate", "--no-decorate", "--all", "--format", "--pretty",
+                "--max-count", "--since", "--until", "--after", "--before", "--author", "--committer", "--grep",
+                "--follow", "--reverse", "--first-parent", "--no-merges", "--merges", "--date", "--abbrev-commit",
+                "--left-right", "--cherry-pick", "--ancestry-path", "--topo-order", "--date-order", "--source",
+                "--skip", "--branches", "--remotes", "--tags", "--invert-grep", "--all-match", "--show-signature",
+                "--name-only", "--no-walk"}
+# git long options per subcommand, matched exactly: git accepts unambiguous abbreviations of every other option
+GIT_LONG = {
+    "": {"--version", "--help"}, "status": {"--short", "--branch", "--porcelain", "--long", "--untracked-files",
+                                            "--ignored", "--show-stash", "--ahead-behind", "--no-ahead-behind",
+                                            "--column", "--no-column", "--renames", "--no-renames", "--verbose"},
+    "diff": _DIFF, "log": _LOG, "show": _LOG, "shortlog": {"--summary", "--numbered", "--email", "--all"},
+    "rev-parse": {"--abbrev-ref", "--show-toplevel", "--git-dir", "--verify", "--short", "--symbolic-full-name",
+                  "--is-inside-work-tree", "--show-prefix", "--git-common-dir", "--absolute-git-dir", "--show-cdup",
+                  "--quiet"},
+    "ls-files": {"--others", "--exclude-standard", "--cached", "--modified", "--deleted", "--ignored", "--stage",
+                 "--error-unmatch", "--full-name", "--directory", "--exclude"},
+    "grep": {"--line-number", "--ignore-case", "--word-regexp", "--count", "--files-with-matches", "--name-only",
+             "--cached", "--untracked", "--extended-regexp", "--fixed-strings", "--perl-regexp", "--invert-match",
+             "--heading", "--break", "--show-function", "--context", "--after-context", "--before-context",
+             "--max-depth", "--all-match", "--quiet", "--null", "--files-without-match"},
+    "blame": {"--porcelain", "--line-porcelain", "--show-email", "--date", "--incremental"},
+    "merge-base": {"--is-ancestor", "--all", "--fork-point", "--octopus"},
+    "describe": {"--tags", "--always", "--abbrev", "--long", "--dirty", "--exact-match", "--match", "--contains",
+                 "--all"},
+    "fetch": {"--all", "--prune", "--tags", "--no-tags", "--depth", "--unshallow", "--quiet", "--verbose",
+              "--dry-run", "--prune-tags", "--force"},
+    "show-ref": {"--heads", "--tags", "--verify", "--quiet", "--hash", "--head"},
+    "rev-list": {"--count", "--all", "--max-count", "--left-right", "--first-parent", "--reverse", "--since",
+                 "--until", "--merges", "--no-merges"},
+    "branch": {"--all", "--remotes", "--list", "--verbose", "--show-current", "--contains", "--no-contains",
+               "--merged", "--no-merged", "--sort", "--format", "--quiet", "--color", "--no-color", "--points-at",
+               "--column", "--no-column"},
+    "tag": {"--list", "--contains", "--no-contains", "--points-at", "--sort", "--merged", "--no-merged", "--format",
+            "--column"},
+    "remote": {"--verbose"},
+    "config": {"--get", "--get-all", "--get-regexp", "--list", "--show-origin", "--show-scope", "--bool", "--int",
+               "--type", "--default", "--null", "--name-only", "--local"},
+    "worktree": {"--porcelain"},
+    "add": {"--all", "--update", "--verbose", "--dry-run", "--force", "--intent-to-add", "--ignore-removal",
+            "--no-all"},
+    "commit": {"--all", "--message", "--amend", "--no-edit", "--quiet", "--signoff", "--no-verify", "--allow-empty",
+               "--file", "--author", "--date", "--fixup", "--verbose", "--gpg-sign", "--no-gpg-sign"},
+    "checkout": {"--quiet", "--force", "--track", "--no-track", "--detach", "--ours", "--theirs", "--orphan"},
+    "switch": {"--create", "--detach", "--guess", "--no-guess", "--track", "--no-track", "--quiet",
+               "--discard-changes", "--orphan"},
+    "restore": {"--source", "--staged", "--worktree", "--ours", "--theirs", "--quiet"},
+    "reset": {"--soft", "--mixed", "--hard", "--keep", "--merge", "--quiet"},
+    "stash": {"--include-untracked", "--keep-index", "--all", "--quiet", "--message", "--staged", "--index"},
+    "rebase": {"--onto", "--continue", "--abort", "--skip", "--autostash", "--no-autostash", "--quit", "--keep-base",
+               "--root", "--rebase-merges", "--no-verify", "--update-refs", "--force-rebase", "--ignore-date",
+               "--committer-date-is-author-date", "--strategy", "--strategy-option"},
+    "merge": {"--no-ff", "--ff-only", "--ff", "--squash", "--no-commit", "--abort", "--continue", "--quit", "--message",
+              "--no-edit", "--strategy", "--strategy-option", "--stat", "--no-stat", "--quiet", "--no-verify",
+              "--allow-unrelated-histories", "--log", "--signoff"},
+    "cherry-pick": {"--continue", "--abort", "--skip", "--quit", "--no-commit", "--signoff", "--mainline",
+                    "--strategy", "--strategy-option", "--allow-empty", "--ff", "--keep-redundant-commits"},
+    "push": {"--set-upstream", "--force-with-lease", "--force", "--force-if-includes", "--dry-run", "--quiet",
+             "--verbose", "--no-verify", "--porcelain", "--atomic", "--progress", "--push-option"},
+    "mv": {"--force", "--dry-run", "--verbose"},
+    "rm": {"--cached", "--force", "--recursive", "--quiet", "--dry-run", "--ignore-unmatch"},
+}
+# short options that open an editor, a patch prompt or run commands
+GIT_SHORT_DENY = {"merge": set("e"), "cherry-pick": set("e"), "checkout": set("p"), "restore": set("p"),
+                  "stash": set("p"), "reset": set("p"), "rebase": set("xi")}
 GIT_GLOBAL_FLAGS = {"--no-pager", "-P", "--no-optional-locks", "--version", "--help", "--literal-pathspecs"}
 GIT_CONFIG_OK = {"user.name", "user.email"}
 # commit and add take messages through -m/-F only: anything that opens an editor or a prompt is out
@@ -103,3 +174,112 @@ def short_value(words: list, k: int, ch: str) -> str | None:
 def short_chars(a: str) -> set:
     """The letters of a short-option cluster such as -am, or an empty set."""
     return set(a[1:]) if a.startswith("-") and not a.startswith("--") and len(a) > 1 else set()
+
+
+class Blocked(Exception):
+    pass
+
+
+def block(why: str):
+    raise Blocked(why)
+
+
+def abbreviates(name: str, options) -> bool:
+    """name is one of options or an unambiguous-looking prefix of one (getopt and optparse accept those)."""
+    return len(name) > 3 and any(o.startswith(name) for o in options)
+
+
+NPX_TOOLS = {"tsc", "eslint", "prettier", "jest", "vitest"}
+RUNNER_SUBCOMMANDS = {"npm": {"exec", "x", "explore", "edit"}, "pnpm": {"exec", "dlx", "x"}, "yarn": {"dlx", "exec"},
+                      "bun": {"x"}, "uv": {"run", "tool"}, "poetry": {"run", "shell"}, "bundle": {"exec"}}
+MAKE_DENY_LONG = {"--file", "--makefile", "--eval", "--directory", "--include-dir"}
+OUT_OPTS = {"--output", "--out-dir", "--outdir", "--target", "--prefix", "--root", "--basetemp", "--cache-dir"}
+PY_MODULES = {"pytest", "unittest", "pip", "black", "ruff", "mypy", "json.tool", "venv"}
+PIP_DENY = {"--target", "--prefix", "--root", "--user", "--src", "--editable"}
+FORMATTERS = {"prettier", "eslint", "black", "ruff"}
+# shortcut: a text tripwire for inline interpreter code; a script file can still do all of this
+INLINE_RISK = re.compile(
+    r"subprocess|os\.(?:system|popen|exec|spawn|remove|unlink|rename|replace|symlink|chmod)|\bpty\b|child_process"
+    r"|Deno\.(?:run|Command)|Bun\.spawn|\bspawn|popen|\b(?:exec|eval|execfile|compile|system)\s*\(|__import__"
+    r"|importlib|shutil|rmtree|write|append|\bfs\.|urllib|requests|http\.client|socket|fetch\(|XMLHttpRequest"
+    r"|\bnet\.|Net::|open3|IO\.popen|`|%x|mode\s*="
+    r"|open\s*\([^)]*,\s*['\"][rbt+]*[wax]|\.open\s*\(\s*['\"][rbt+]*[wax]")
+
+
+def toolchain(exe: str, words: list, write) -> None:
+    """Checks for the build and test tools: runners that exec other programs block, outputs stay in write roots."""
+    args = words[1:]
+    pos = [a for a in args if not a.startswith("-")]
+    for a in args:
+        if any(c in a for c in "\\'\"$\x00\x01"):
+            block(f"{exe} arguments with quotes, backslashes or $ can't be checked")
+    if exe == "npx":
+        rest = [a for a in args if a not in ("-y", "--yes", "--no-install")]
+        if not rest or rest[0] not in NPX_TOOLS:
+            block(f"npx may only run {', '.join(sorted(NPX_TOOLS))}")
+    if pos[:1] and pos[0] in RUNNER_SUBCOMMANDS.get(exe, ()):
+        block(f"{exe} {pos[0]} runs another program the guard can't follow")
+    if exe in ("npm", "pnpm", "yarn") and any(a in ("-c", "--call") or abbreviates(a.partition("=")[0], {
+            "--call", "--script-shell", "--shell"}) for a in args):
+        block(f"{exe} -c/--script-shell runs a command the guard can't follow")
+    if exe == "go" and pos[:1] == ["run"]:
+        for p in pos[1:]:
+            if "@" in p:
+                block("go run of a remote module is not allowed")
+            write(p)
+    if exe == "make":
+        for a in args:
+            if (a.startswith("--") and abbreviates(a.partition("=")[0], MAKE_DENY_LONG)) or \
+                    short_chars(a) & set("fECI") and not a.startswith("--"):
+                block("make may only run the worktree's Makefile (no -f, -C, -I or --eval)")
+    if exe in ("pip", "pip3"):
+        pip(args)
+    for k, a in enumerate(args):
+        name, eq, val = a.partition("=")
+        nxt = args[k + 1] if k + 1 < len(args) else ""
+        if a == "-o":
+            write(nxt)
+        elif a.startswith("-o") and not a.startswith("--") and len(a) > 2:
+            write(a[2:])
+        elif a.startswith("--") and abbreviates(name, OUT_OPTS):
+            write(val if eq else nxt)
+    if exe in FORMATTERS:
+        for p in pos:
+            if p not in ("check", "format"):
+                write(p)
+
+
+def pip(args: list) -> None:
+    pos = [a for a in args if not a.startswith("-")]
+    if pos[:1] and pos[0] not in ("install", "list", "show", "freeze"):
+        block(f"pip {pos[0]} is not allowed; install, list, show or freeze only")
+    for a in args:
+        if a == "-t" or a.startswith("-t") and not a.startswith("--") or abbreviates(a.partition("=")[0], PIP_DENY):
+            block("pip may only install into the active environment")
+
+
+def python_module(args: list, write) -> None:
+    """python -m: only the listed modules, with their write targets checked."""
+    k = next((i for i, a in enumerate(args) if a == "-m" or a.startswith("-m")), None)
+    if k is None:
+        return
+    mod = args[k][2:] or (args[k + 1] if k + 1 < len(args) else "")
+    rest = args[k + 2:] if args[k] == "-m" else args[k + 1:]
+    if mod not in PY_MODULES:
+        block(f"python -m {mod} is not allowed")
+    pos = [a for a in rest if not a.startswith("-")]
+    if mod == "pip":
+        pip(rest)
+    elif mod == "json.tool" and len(pos) > 1:
+        block("python -m json.tool may only print")
+    elif mod == "venv":
+        for p in pos:
+            write(p)
+    elif mod in FORMATTERS:
+        for p in pos:
+            if p not in ("check", "format"):
+                write(p)
+    for j, a in enumerate(rest):
+        name, eq, val = a.partition("=")
+        if a.startswith("--") and abbreviates(name, OUT_OPTS):
+            write(val if eq else (rest[j + 1] if j + 1 < len(rest) else ""))

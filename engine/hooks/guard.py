@@ -17,9 +17,10 @@ if _ROOT not in sys.path:
 try:
     from engine.hooks.commands_allow import (
         ADD_LONG, ADD_SHORT, ALLOWED, ASSIGN, BRANCH_LIST_FLAGS, COMMIT_LONG, COMMIT_SHORT, ENV_DENY, ENV_OK,
-        FILE_OPS, FIND_ACTIONS, GH_READ, GIT_CONFIG_OK, GIT_GLOBAL_FLAGS, GIT_LOCAL, GIT_READ, HANDOFF, KEYWORDS,
-        LANGS, MESSAGE_OPTS, NET_TOOLS, PATH_ARGS, SED_CMD, SED_FLAG, SYSTEM_BIN, TAG_LIST_FLAGS, TOOLCHAIN,
-        WRAP_VALUES, WRAPPERS, WRITER_VALUES, positionals, short_chars, short_value)
+        FILE_OPS, FIND_ACTIONS, GH_READ, GIT_CONFIG_OK, GIT_GLOBAL_FLAGS, GIT_LOCAL, GIT_LONG, GIT_READ,
+        GIT_SHORT_DENY, HANDOFF, INLINE_RISK, KEYWORDS, LANGS, MESSAGE_OPTS, NET_TOOLS, PATH_ARGS, READ_VALUES,
+        SED_CMD, SED_FLAG, SYSTEM_BIN, TAG_LIST_FLAGS, TOOLCHAIN, WRAP_VALUES, WRAPPERS, WRITER_VALUES, Blocked,
+        abbreviates, block, positionals, python_module, short_chars, short_value, toolchain)
     from engine.hooks.shell import SUB, Unparseable, lex, literal, structure
     from engine.lib import config, paths
     from engine.lib.cli import WRITE_COMMANDS
@@ -37,14 +38,6 @@ INLINE_GIT = re.compile(r"\bgit\W+(?:\S+\W+)?(?:push|merge)\b|\bgh\W+(?:pr|api)\
 ENV_FILES_OK = {".env.example", ".env.sample", ".env.template"}
 BRACES = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")
 HOME_VARS = re.compile(r"\$(?:\{(HOME|TMPDIR)\}|(HOME|TMPDIR)\b)")
-
-
-class Blocked(Exception):
-    pass
-
-
-def block(why: str):
-    raise Blocked(why)
 
 
 # ---- paths ----
@@ -77,6 +70,16 @@ def _under(p: str, roots, fold: bool = False) -> bool:
 def _env_name(base: str) -> bool:
     base = base.casefold()
     return (base == ".env" or base.startswith(".env.")) and base not in ENV_FILES_OK
+
+
+def _read_candidates(w: str) -> list:
+    """The paths a word could read: itself, a glued short-option value, an --opt= or k= value, minus @ or <."""
+    out = [w]
+    if w.startswith("-") and not w.startswith("--") and len(w) > 2:
+        out.append(w[2:])
+    if "=" in w:
+        out.append(w.split("=", 1)[1])
+    return out + [c[1:] for c in out if c[:1] in ("@", "<")]
 
 
 def _dynamic(w: str) -> bool:
@@ -171,14 +174,21 @@ class Guard:
         self.script(lex(text, 0, None)[0], cwd)
 
     def script(self, toks: list, cwd: str | None):
-        stack = []
+        """Check each pipeline in every cwd it could run in: a cd only counts for sure along an unbroken &&
+        chain from the start, so after ; || or & any cwd seen so far is possible."""
+        stack, cwds, seen, exact = [], [cwd], [cwd], True
         for item in structure(toks):
             if item == "(":
-                stack.append(cwd)
+                stack.append((cwds, seen, exact))
             elif item == ")":
-                cwd = stack.pop()
+                cwds, seen, exact = stack.pop()
+            elif isinstance(item, str):
+                if item != "&&" and exact:
+                    exact, cwds = False, list(seen)
             else:
-                cwd = self.pipeline(item, cwd)
+                new = list(dict.fromkeys(self.pipeline(item, c) for c in cwds))
+                seen = list(dict.fromkeys(seen + new))
+                cwds = new if exact else seen
 
     def pipeline(self, pipe: list, cwd: str | None):
         new_cwd = cwd
@@ -250,10 +260,11 @@ class Guard:
             return resolve(args[0] if args else "~", cwd) if args[:1] != ["-"] else None
         if exe == "popd":
             return None
-        for w in words[1:]:
-            for c in [w] + ([w[1:]] if w.startswith("@") else []) + ([w.split("=", 1)[1]] if "=" in w else []):
-                self.read(c, cwd, tree=exe != "ls")
         args = words[1:]
+        for w in args:
+            for c in _read_candidates(w):
+                self.read(c, cwd, tree=exe != "ls")
+        self.assignments(exe, args)
         if exe in PATH_ARGS and any(_dynamic(w) for w in args):
             block(f"{exe} with a run-time argument can't be checked")
         if exe == "env" and args:
@@ -262,13 +273,16 @@ class Guard:
             for a in args:
                 if a.partition("=")[0] not in ENV_OK:
                     block(f"export {a.partition('=')[0]} is not allowed")
-        if exe == "set" and not all(re.fullmatch(r"[-+][euxo]+|pipefail", a) for a in args):
-            block("set may only turn on -e, -u, -x or -o pipefail")
+        if exe == "set" and not all(re.fullmatch(r"[-+][euo]+|pipefail", a) for a in args):
+            block("set may only turn on -e, -u or -o pipefail")
         if exe == "find" and any(a in FIND_ACTIONS for a in args):
             block("find may only list files (no -exec, -delete or -fprint)")
-        if exe in TOOLCHAIN and not LANGS.fullmatch(exe) and \
-                any(os.path.basename(t) in HANDOFF for w in args for t in literal(w).split()):
-            block(f"{exe} would run a command the guard can't follow; run it directly")
+        if exe in TOOLCHAIN and not LANGS.fullmatch(exe):
+            if any(os.path.basename(t) in HANDOFF for w in args for t in literal(w).split()):
+                block(f"{exe} would run a command the guard can't follow; run it directly")
+            toolchain(exe, words, lambda p: self.write(p, cwd))
+        if exe in ("sed", "awk", "gawk", "sort"):
+            self.text_tool(exe, args)
         if exe == "deno" and args[:1] == ["eval"]:
             block("deno eval can't be checked")
         if exe == "git":
@@ -280,14 +294,46 @@ class Guard:
         elif exe in NET_TOOLS:
             self.network(exe, words, cwd)
         elif LANGS.fullmatch(exe):
-            self.interp(exe, words)
+            self.interp(exe, words, cwd)
         elif exe in FILE_OPS or exe in WRITER_VALUES:
             self.writes(exe, words, cwd)
         return cwd
 
-    def interp(self, exe: str, words: list):
+    def assignments(self, exe: str, args: list):
+        """Every way a command can set a shell variable: the dangerous names are never assigned."""
+        names = []
+        if exe == "for":
+            names = args[:1]
+        elif exe == "read":
+            names = [a for k, a in enumerate(args) if not a.startswith("-") and not (k and args[k - 1] in READ_VALUES)]
+        elif exe == "printf":
+            names = [args[k + 1] for k, a in enumerate(args[:-1]) if a == "-v" or a.startswith("-v")]
+            names += [a[2:] for a in args if a.startswith("-v") and len(a) > 2]
+        for n in names:
+            if ENV_DENY.fullmatch(literal(n)):
+                block(f"setting {literal(n)} is not allowed")
+
+    def text_tool(self, exe: str, args: list):
+        for a in args:
+            name = a.partition("=")[0]
+            if exe != "sort" and exe != "sed" and (short_chars(a) & set("eilfE") or a.startswith("--") and abbreviates(
+                    name, {"--source", "--include", "--file", "--load", "--exec"})):
+                block(f"{exe} program files, includes and --source can't be checked")
+            if exe == "sort" and a.startswith("--") and abbreviates(name, {"--compress-program"}):
+                block("sort --compress-program runs a program the guard can't check")
+
+    def interp(self, exe: str, words: list, cwd: str | None):
         args = words[1:]
         text = literal(" ".join(args))
+        inline = [literal(args[k + 1]) for k, a in enumerate(args[:-1])
+                  if a in ("-c", "-e", "-E", "--eval", "-p", "--print") or re.fullmatch(r"-[A-Za-z]*[ceEp]", a)]
+        if any(INLINE_RISK.search(code) for code in inline):
+            block("inline code that runs programs, writes files or opens connections can't be checked; "
+                  "put it in a test or script")
+        if exe.startswith("python"):
+            python_module(args, lambda p: self.write(p, cwd))
+        if exe == "bun" and [x for x in args if not x.startswith("-")][:1] == ["x"]:
+            block("bun x runs another program the guard can't follow")
         if any(h in text.lower() for h in HOSTS):
             block(NET_MSG)
         if INLINE_GIT.search(text):
@@ -363,7 +409,7 @@ class Guard:
                 block("awk programs that write, pipe or run commands can't be checked")
             if exe == "sed" and (SED_CMD.search(prog) or SED_FLAG.search(prog)):
                 block("sed w, r and e commands can't be checked")
-        in_place = exe == "sed" and any(re.fullmatch(r"-[A-Za-z]*i.*|--in-place.*", w) for w in words[1:])
+        in_place = exe == "sed" and any(short_chars(w) & {"i", "I"} or w.startswith("--in-place") for w in words[1:])
         return files if in_place else []
 
     # -- git, gh, sf --
@@ -404,10 +450,16 @@ class Guard:
         if sub not in GIT_READ and (cwd is None or _under(cwd, self.repos)):
             block(f"git {sub} in the main checkout is not allowed; work in the ticket worktree")
         for k, a in enumerate(rest):
-            if _dynamic(a) and not (k and rest[k - 1] in MESSAGE_OPTS) and not a.startswith(("-m", "--message=")):
+            if a == "--":
+                break
+            if k and rest[k - 1] in MESSAGE_OPTS:
+                continue
+            if _dynamic(a) and not a.startswith(("-m", "--message=")):
                 block(f"git {sub} with a run-time argument can't be checked")
-            if a.startswith("--output"):
-                self.write(a.partition("=")[2] or (rest[k + 1] if k + 1 < len(rest) else ""), cwd)
+            if a.startswith("--") and a.partition("=")[0] not in GIT_LONG.get(sub, set()):
+                block(f"git {sub} {a.partition('=')[0]} is not on the guard's list of options")
+            if short_chars(a) & GIT_SHORT_DENY.get(sub, set()) and not a.startswith(("-m", "-F")):
+                block(f"git {sub} {a} opens an editor or prompt the guard can't check")
         getattr(self, "git_" + sub.replace("-", "_"), lambda rest, cwd: None)(rest, cwd)
 
     def git_options(self, sub: str, rest: list, short: set, long: set):

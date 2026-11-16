@@ -155,7 +155,7 @@ def lex(s: str, i: int, stop: str | None):
             flush()
             two = s[i:i + 2]
             op = two if two in ("&&", "||", "|&", ";;") else c
-            toks.append(("op", "|" if op in ("|", "|&") else ";"))
+            toks.append(("op", {"|&": "|", ";;": ";"}.get(op, op)))
             i += len(op)
         elif c == "(":
             prev_word = word is not None
@@ -193,7 +193,7 @@ class Cmd:
 
 
 def structure(toks: list) -> list:
-    """Group tokens into "(" / ")" markers and pipelines (lists of Cmd)."""
+    """Group tokens into pipelines (lists of Cmd), "(" / ")" markers and separators (; && || &)."""
     items, pipe, cmd, redir = [], [], Cmd(), None
     for t in toks:
         if isinstance(t, Word):
@@ -217,8 +217,7 @@ def structure(toks: list) -> list:
         if pipe:
             items.append(pipe)
             pipe = []
-        if op in ("(", ")"):
-            items.append(op)
+        items.append(op)  # "(", ")" or a separator: ; && || &
     if redir:
         raise Unparseable
     if cmd.words or cmd.redirs:
