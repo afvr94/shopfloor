@@ -24,9 +24,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Unit tests
-        # a throwaway home, so no test can touch the runner's real config or services
+        # A throwaway home, so no test touches the runner's real config. It must sit outside the temp dir:
+        # that is a crew write root, and the guard tests check that writes to ~ are blocked.
         run: |
-          export HOME="$(mktemp -d)" SHOPFLOOR_HOME="$(mktemp -d)/shopfloor"
+          export HOME="$(dirname "$GITHUB_WORKSPACE")/ci-home" SHOPFLOOR_HOME="$(dirname "$GITHUB_WORKSPACE")/ci-shopfloor"
+          mkdir -p "$HOME"
           git config --global user.name ci
           git config --global user.email ci@example.org
           python -m unittest -v 2>&1 | tail -40
