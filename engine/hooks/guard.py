@@ -22,7 +22,7 @@ try:
         SED_FLAG, SYSTEM_BIN, TAG_LIST_FLAGS, TOOLCHAIN, WGET_OUT, WRAP_VALUES, WRAPPERS, WRITER_VALUES, Blocked,
         abbreviates, block, expand_long, interpreter, positionals, short_chars, short_value, toolchain)
     from engine.hooks.shell import SUB, Unparseable, lex, literal, structure
-    from engine.lib import config, paths
+    from engine.lib import config, gitsafe, paths
     _IMPORT_ERROR = None
 except Exception as e:  # reported by main(), which then blocks
     _IMPORT_ERROR = e
@@ -419,7 +419,7 @@ class Guard:
         if cwd is None or self.branch_unknown:
             return None
         try:
-            out = subprocess.run(["git", *loc, "rev-parse", "--abbrev-ref", ref], cwd=cwd,
+            out = subprocess.run(["git", *gitsafe.flags(), *loc, "rev-parse", "--abbrev-ref", ref], cwd=cwd,
                                  capture_output=True, text=True, timeout=10)
         except (OSError, subprocess.SubprocessError):
             return None

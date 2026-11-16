@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from engine.lib import paths, worktrees
-from engine.lib.proc import ProcError, run
+from engine.lib import gitsafe, paths, worktrees
+from engine.lib.proc import ProcError
 
 from . import base
 from .base import GitFlow, GitFlowError
@@ -24,11 +24,11 @@ class MergeToTestBranch(GitFlow):
         main = self.cfg["repos"][repo_name]["path"]
         wt = paths.worktrees_dir(self.crew) / "_test" / repo_name
 
-        def g(*a: str) -> str:
-            return run(["git", "-C", str(wt), *a]).strip()
+        def g(*a: str, check: bool = True) -> str:
+            return gitsafe.git(wt, *a, check=check)
 
         try:
-            if not worktrees.is_clone(wt, main):
+            if not (gitsafe.pinned(wt) and worktrees.is_clone(wt, main)):
                 worktrees.drop(wt, main)
                 worktrees.clone(main, wt)
             g("fetch", "--prune", "origin")
@@ -36,13 +36,13 @@ class MergeToTestBranch(GitFlow):
             try:
                 g("merge", "--no-ff", oid, "-m", f"Merge {head} into {test} ({key})")
             except ProcError as e:
-                conflicts = run(["git", "-C", str(wt), "diff", "--name-only", "--diff-filter=U"], check=False).strip()
-                run(["git", "-C", str(wt), "merge", "--abort"], check=False)
+                conflicts = g("diff", "--name-only", "--diff-filter=U", check=False)
+                g("merge", "--abort", check=False)
                 raise GitFlowError(
                     f"merge of {head} into {test} failed: {e.stderr.strip()[:200]}"
                     f" conflicts: {conflicts.replace(chr(10), ', ') or 'none listed'}"
                 ) from e
-            g("push", "origin", test)
+            gitsafe.push(wt, main, test)
             sha = g("rev-parse", "--short=7", "HEAD")
         except ProcError as e:
             raise GitFlowError(str(e)) from e

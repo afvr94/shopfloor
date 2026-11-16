@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from engine.lib import paths, worktrees
+from engine.lib import gitsafe, paths, worktrees
 from tests.gitrepo import commit_file, git, make_repo, tmpdir, IDENT
 
 
@@ -52,7 +52,7 @@ class TestPrepare(WorktreeCase):
         self.assertEqual((d / "f.txt").read_text(), "remote\n")
         self.assertEqual(git(d, "rev-parse", "--abbrev-ref", "@{u}"), "origin/shopfloor/abc-1-x")
 
-    def test_prepare_replaces_broken_worktree_saving_patch(self):
+    def test_prepare_moves_aside_a_repo_sf_did_not_make_without_running_git_in_it(self):
         d = self.wt()
         d.mkdir(parents=True)
         git(d, "init", "-b", "main")
@@ -61,7 +61,16 @@ class TestPrepare(WorktreeCase):
         out = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
         self.assertFalse((out / "junk.txt").exists())
         self.assertEqual(git(out, "rev-parse", "--abbrev-ref", "HEAD"), "shopfloor/abc-1-x")
-        self.assertEqual(len(list(paths.ticket_dir("crew", "ABC-1").glob("salvage-app-*.patch"))), 1)
+        self.assertEqual(list(paths.ticket_dir("crew", "ABC-1").glob("salvage-app-*.patch")), [])
+        (aside,) = paths.ticket_dir("crew", "ABC-1").glob("salvage-app-*")
+        self.assertEqual((aside / "junk.txt").read_text(), "x")
+
+    def test_prepare_refuses_a_clone_whose_config_changed(self):
+        d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
+        git(d, "config", "core.editor", "vi")
+        with self.assertRaises(gitsafe.ConfigChanged):
+            worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
+        self.assertTrue((d / ".git").is_dir())
 
     def test_prepare_moves_aside_non_git_leftover(self):
         d = self.wt()

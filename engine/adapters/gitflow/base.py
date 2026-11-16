@@ -7,7 +7,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from engine.lib import state
+from engine.lib import gitsafe, state
 from engine.lib.proc import ProcError, run
 
 SHIP_BRANCH = re.compile(r"shopfloor/[A-Za-z0-9._/-]+")
@@ -48,14 +48,24 @@ class GitFlow:
         self.crew = cfg["id"]
         self.flow = cfg["gitFlow"]
 
-    def ship(self, key: str, repo_name: str, worktree: Path, title: str, body: str) -> str:
-        repo = self.cfg["repos"][repo_name]
-        branch = run(["git", "-C", str(worktree), "symbolic-ref", "--short", "HEAD"]).strip()
+    def ticket_branch(self, worktree: Path) -> str:
+        """The clone's current branch, if it is one a crew may push: shopfloor/*, never a base, protected or test
+        branch."""
+        branch = gitsafe.git(worktree, "symbolic-ref", "--short", "HEAD")
         bases = {r["base"] for r in self.cfg["repos"].values()}
         if not SHIP_BRANCH.fullmatch(branch) or ".." in branch or branch in bases or \
                 branch == self.flow.get("testBranch") or branch in self.cfg.get("protectedBranches", []):
             raise GitFlowError(f"refusing to push {branch}; only shopfloor/* ticket branches ship")
-        run(["git", "-C", str(worktree), "push", "-u", "origin", branch])
+        return branch
+
+    def push(self, repo_name: str, worktree: Path) -> str:
+        branch = self.ticket_branch(worktree)
+        gitsafe.push(worktree, self.cfg["repos"][repo_name]["path"], branch, force=True)
+        return branch
+
+    def ship(self, key: str, repo_name: str, worktree: Path, title: str, body: str) -> str:
+        repo = self.cfg["repos"][repo_name]
+        branch = self.push(repo_name, worktree)
         try:
             found = json.loads(GH(["pr", "list", "-R", repo["github"], "--head", branch,
                                    "--state", "open", "--json", "url"]))

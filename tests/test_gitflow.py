@@ -117,10 +117,10 @@ class TestShip(GitFlowCase):
         for b in ("feature/x", "shopfloor", "shopfloor/", "shopfloor/a..b", "shopfloor/a b", "xshopfloor/a"):
             calls = []
 
-            def fake(argv, b=b, **k):
-                calls.append(argv)
-                return b + "\n"
-            with mock.patch.object(base, "run", side_effect=fake), self.assertRaises(base.GitFlowError):
+            def fake(clone, *args, b=b, **k):
+                calls.append(args)
+                return b
+            with mock.patch.object(base.gitsafe, "git", side_effect=fake), self.assertRaises(base.GitFlowError):
                 self.pf.ship("ABC-2", "app", d, "T", "b")
             self.assertFalse([c for c in calls if "push" in c], b)
         self.assertEqual(self.gh.calls, [])

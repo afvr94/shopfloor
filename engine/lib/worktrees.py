@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import datetime
+import os
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
-from . import paths
-from .proc import ProcError, run
+from . import gitsafe, paths
+from .proc import ProcError
 
 SLUG_MAX = 40
 
@@ -17,22 +19,28 @@ def branch_name(key: str, title: str) -> str:
     return f"shopfloor/{key.lower()}" + (f"-{slug}" if slug else "")
 
 
-def _git(path, *args, check=True) -> str:
-    return run(["git", "-C", str(path), *args], check=check).strip()
+_git = gitsafe.git  # inside a clone: config checked against what sf recorded
+_main = gitsafe.raw  # the owner's own checkout
 
 
 def clone(main: str, dest: Path) -> None:
-    """A full local clone of the main checkout whose origin is the real remote, so its .git sits inside dest."""
-    url = _git(main, "remote", "get-url", "origin")
+    """A full local clone of the main checkout whose origin is the real remote, so its .git sits inside dest.
+    It is built where crews can't write and its config is recorded before it moves into place."""
+    url = _main(main, "remote", "get-url", "origin")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    run(["git", "clone", "--quiet", "--no-checkout", str(main), str(dest)])
-    _git(dest, "remote", "set-url", "origin", url)
+    with tempfile.TemporaryDirectory(dir=gitsafe.state_dir(dest)) as tmp:
+        work = Path(tmp) / "clone"
+        _main("/", "clone", "--quiet", "--no-checkout", str(main), str(work))
+        _main(work, "remote", "set-url", "origin", url)
+        recorded = gitsafe.digest(work)
+        os.rename(work, dest)
+    gitsafe.pin(dest, recorded)
     _git(dest, "fetch", "--prune", "origin")
 
 
 def is_clone(d: Path, main: str) -> bool:
     return (d / ".git").is_dir() and \
-        _git(d, "remote", "get-url", "origin", check=False) == _git(main, "remote", "get-url", "origin", check=False)
+        _git(d, "remote", "get-url", "origin", check=False) == _main(main, "remote", "get-url", "origin", check=False)
 
 
 def _healthy(wt: Path, repo_path: str, branch: str) -> bool:
@@ -41,7 +49,8 @@ def _healthy(wt: Path, repo_path: str, branch: str) -> bool:
 
 def drop(wt: Path, main: str) -> None:
     shutil.rmtree(wt, ignore_errors=True)
-    _git(main, "worktree", "prune", check=False)  # leftovers from the git-worktree layout
+    gitsafe.unpin(wt)
+    _main(main, "worktree", "prune", check=False)  # leftovers from the git-worktree layout
 
 
 def _unpushed(wt: Path) -> bool:
@@ -69,6 +78,7 @@ def _move_aside(wt: Path, crew_id: str, key: str, repo_name: str) -> None:
     d = paths.ticket_dir(crew_id, key)
     d.mkdir(parents=True, exist_ok=True)
     shutil.move(str(wt), str(d / f"salvage-{repo_name}-{_stamp()}"))
+    gitsafe.unpin(wt)
 
 
 def prepare(cfg: dict, key: str, repo_name: str, branch: str) -> Path:
@@ -76,26 +86,29 @@ def prepare(cfg: dict, key: str, repo_name: str, branch: str) -> Path:
     main = repo["path"]
     paths.ticket_dir(cfg["id"], key)  # validates the key
     wt = paths.worktrees_dir(cfg["id"]) / key / repo_name
-    _git(main, "fetch", "origin")
+    _main(main, "fetch", "origin")
     if wt.exists():
-        if _healthy(wt, main, branch):
+        if not gitsafe.pinned(wt):
+            # not a clone sf made: running git in it could run whatever its config says, so keep it untouched
+            _move_aside(wt, cfg["id"], key, repo_name)
+            _main(main, "worktree", "prune", check=False)
+        elif _healthy(wt, main, branch):
             _git(wt, "fetch", "--prune", "origin")
             return wt
-        if (wt / ".git").exists():
+        else:
             _salvage(wt, cfg["id"], key, repo_name)
             if _unpushed(wt):  # local commits live only in this clone: keep the whole directory
                 _move_aside(wt, cfg["id"], key, repo_name)
             else:
                 drop(wt, main)
-        else:
-            _move_aside(wt, cfg["id"], key, repo_name)
 
-    def has(ref: str, where=main) -> bool:
-        return bool(_git(where, "rev-parse", "--verify", "-q", ref, check=False))
+    def has(ref: str, where=None) -> bool:
+        g = _git if where else _main
+        return bool(g(where or main, "rev-parse", "--verify", "-q", ref, check=False))
 
     local = has(f"refs/heads/{branch}") and (
         not has(f"refs/remotes/origin/{branch}")
-        or bool(_git(main, "rev-list", f"origin/{branch}..{branch}", check=False)))
+        or bool(_main(main, "rev-list", f"origin/{branch}..{branch}", check=False)))
     clone(main, wt)
     if local:
         # unpushed commits in the main checkout: carry the local branch over rather than reset it
