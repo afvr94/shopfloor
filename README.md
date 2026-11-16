@@ -19,7 +19,7 @@ Read [docs/SAFETY.md](docs/SAFETY.md) before you turn dry run off. Crews run una
 
 ## Quick start
 
-1. Get the code and run the setup wizard. It asks for a crew id, Linear team, Slack channel and your repo, stores your tokens in `0600` files under `~/.shopfloor/secrets`, writes the crew config and installs the schedule.
+1. Get the code and run the setup wizard. It asks for a crew id, Linear team, Slack channel and your repo, stores your tokens in `0400` files under `~/.shopfloor/secrets` (a `0500` folder), writes the crew config and installs the schedule.
 
    ```sh
    git clone https://github.com/afvr94/shopfloor
@@ -54,6 +54,7 @@ Every new crew starts with `"dryRun": true`. In dry run the crew chats and build
 | `shopfloor init` | Setup wizard for one crew. |
 | `shopfloor doctor [crew]` | Check tools, sandbox support, secrets, Linear, Slack, repos and branch protection. |
 | `shopfloor doctor --live [crew]` | Also start one real sandboxed crew session in a temp folder (uses your Claude plan). |
+| `shopfloor doctor --repair-tamper <crew>` | Clear a crew's tamper markers once you have checked the records they name (see [SAFETY.md](docs/SAFETY.md) section 4). |
 | `shopfloor install [crew]` | Install the board service and each crew's schedule. |
 | `shopfloor uninstall` | Remove the installed services. |
 | `shopfloor run <crew>` | Run one tick now. |

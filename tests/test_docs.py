@@ -57,6 +57,8 @@ class Docs(unittest.TestCase):
                       "bubblewrap", "resume", "ticketstate", "o_nofollow", "bundlemaxmb",
                       "claude code's own hardening", "hmac-sha256", "record tampered", "--body-file -",
                       "detect a write, they don't prevent it", "secrets/signing/sf.key", "`0500`", "denieddomains",
+                      "--repair-tamper", "relock sweep", "[::ffff:127.0.0.1]", "2.1.284", "board.allowremote",
+                      "detected, not prevented",
                       "not that you chose what it says"):
             self.assertIn(topic, text)
 

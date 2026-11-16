@@ -64,7 +64,7 @@ Required for `shopfloor install` to install the crew's timer.
 | --- | --- | --- | --- |
 | `tracker` | object | required | Ticket source. |
 | `tracker.type` | string | required | Must be `"linear"`. |
-| `tracker.tokenFile` | string | required | Path to the `0600` file holding the Linear API key. |
+| `tracker.tokenFile` | string | required | Path to the file holding the Linear API key: `0400` (as `init` writes it) or `0600`. |
 | `tracker.mayMove` | string[] | none | Allowed state moves as `from->to`, both keys of `tracker.linear.states`. |
 | `tracker.linear` | object | | Linear settings. |
 | `tracker.linear.team` | string | required | Team key, such as `ENG`. |
@@ -82,7 +82,7 @@ Required for `shopfloor install` to install the crew's timer.
 | --- | --- | --- | --- |
 | `chat` | object | required | Where the crew talks to you. |
 | `chat.type` | string | required | Must be `"slack"`. |
-| `chat.tokenFile` | string | required | Path to the `0600` file holding the bot token. |
+| `chat.tokenFile` | string | required | Path to the file holding the bot token: `0400` (as `init` writes it) or `0600`. |
 | `chat.slack` | object | | Slack settings. |
 | `chat.slack.channel` | string | required | Channel ID where ticket threads are opened. |
 | `chat.slack.ownerUserId` | string | required | Member ID of the only user whose replies count. |

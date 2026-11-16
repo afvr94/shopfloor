@@ -1,8 +1,9 @@
 """HMAC signatures on the records sf trusts: ticket state, the commands queue and its cursor, lessons and the
 validated briefing.
 
-Those files live in folders sf keeps read-only while idle, out of every crew's sandbox write roots. The
-signature is the second line: a record that fails the check is reported as tampered and never acted on. It
+Those files live in folders sf keeps read-only while idle, out of every crew's sandbox write roots, and
+state.unlocked flags anything that lands while sf has one open. The signature is the last line: a record that
+fails the check is reported as tampered and never acted on. It
 proves sf wrote the record, not that the owner chose what it says; sf signs whatever text a crew passes it.
 
 Each signature covers a `scope` naming the record (for example "ticket/<crew>/<KEY>"), so a signed record copied

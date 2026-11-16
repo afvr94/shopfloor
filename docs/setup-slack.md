@@ -23,7 +23,7 @@ It enables no event subscriptions, no interactivity, no socket mode and no reque
 
 ## 2. Install and copy the token
 
-Choose Install to Workspace, then copy the Bot User OAuth Token (it starts with `xoxb-`). `shopfloor init` asks for it and stores it in a `0600` file under `~/.shopfloor/secrets`.
+Choose Install to Workspace, then copy the Bot User OAuth Token (it starts with `xoxb-`). `shopfloor init` asks for it and stores it in a `0400` file under `~/.shopfloor/secrets`.
 
 ## 3. Invite the bot
 

@@ -9,10 +9,10 @@ In Linear, open Settings, then Account, then Security & access, and create a per
 ```sh
 mkdir -p ~/.shopfloor/secrets && chmod 700 ~/.shopfloor/secrets
 printf '%s\n' 'lin_api_...' > ~/.shopfloor/secrets/linear
-chmod 600 ~/.shopfloor/secrets/linear
+chmod 400 ~/.shopfloor/secrets/linear && chmod 500 ~/.shopfloor/secrets
 ```
 
-`shopfloor init` does this for you when it prompts for the key. The key is never printed, logged or put in a command line. A secret file that is not mode `0600` is refused.
+`shopfloor init` does this for you when it prompts for the key. The key is never printed, logged or put in a command line. A secret file readable by anyone else is refused; `0600` works, and `shopfloor doctor` warns about it. Shopfloor keeps the secrets folder at `0500`, so to add or change a file there by hand, `chmod 700 ~/.shopfloor/secrets` first; the next `shopfloor run` or `sf` call locks it again.
 
 ## 2. Create the opt-in label
 
