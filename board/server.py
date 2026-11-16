@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 import sys
@@ -11,7 +12,7 @@ from pathlib import Path
 from board import listener
 from board.briefing_page import BRIEF_PATH, render_briefing
 from board.state import board_state, briefing_data, tick_running
-from engine.lib import config, paths
+from engine.lib import config, paths, state
 from engine.lib.commands import CommandQueue, CommandQueueError
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -136,6 +137,9 @@ def make_server(board_cfg: dict) -> ThreadingHTTPServer:
 
 
 def serve(board_cfg: dict) -> None:
+    for cid in board_cfg["crews"] or config.list_crews():
+        with contextlib.suppress(OSError, ValueError):
+            state.relock_all(cid)
     server = make_server(board_cfg)
     stop = threading.Event()
     threading.Thread(target=listener.run_forever, args=(stop, board_cfg["pollSeconds"]), daemon=True).start()

@@ -126,6 +126,7 @@ def _build_one(crew_id: str, key: str, max_minutes: float) -> None:
 
 def run_builds(crew_id: str, keys: list[str]) -> None:
     limits = config.load_crew(crew_id)["limits"]
+    state.relock_all(crew_id)
     lock = paths.build_lock(crew_id)
     if not state.acquire_lock(lock):
         raise RunnerBusy(f"a build run is already active for crew '{crew_id}'")

@@ -44,9 +44,12 @@ class CommandQueue:
     def _chain(self) -> list[tuple[dict, str]]:
         """(row, signature) for every line, checked link by link."""
         try:
-            lines = self.log.read_bytes().splitlines()
+            lines = state.read_record(self.log).splitlines()
         except FileNotFoundError:
             return []
+        except signing.Tampered as e:
+            state.report_tampered(self.crew, None, self.log)
+            raise CommandQueueError(f"{e}; sf won't act on commands until you check it") from None
         out: list[tuple[dict, str]] = []
         for n, line in enumerate(lines, 1):
             try:
@@ -66,9 +69,12 @@ class CommandQueue:
     def _acked(self, chain: list[tuple[dict, str]]) -> int:
         """The highest acked seq, checked against the log."""
         try:
-            raw = self.cursor.read_text()
+            raw = state.read_record(self.cursor).decode()
         except FileNotFoundError:
             return 0
+        except signing.Tampered as e:
+            state.report_tampered(self.crew, None, self.cursor)
+            raise CommandQueueError(f"{e}; sf won't act on commands until you check it") from None
         except (OSError, UnicodeError):
             raise self._tampered(self.cursor, "unreadable") from None
         try:

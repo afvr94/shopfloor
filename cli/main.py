@@ -16,6 +16,7 @@ from engine.lib.redact import redact
 
 def run_tick(crew_id: str, popen=subprocess.Popen, timeout: float | None = None) -> int:
     cfg = config.load_crew(crew_id)
+    state.relock_all(crew_id)
     lock = paths.tick_lock(crew_id)
     if not state.acquire_lock(lock):
         state.log_run(crew_id, None, "skipped: locked")
@@ -93,6 +94,8 @@ def _parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
     for name in ("doctor", "install", "status"):
         sub.add_parser(name).add_argument("crew", nargs="?")
+    sub.choices["doctor"].add_argument("--repair-tamper", metavar="CREW",
+                                       help="clear a crew's tamper markers once you have checked its records")
     sub.choices["doctor"].add_argument("--live", action="store_true",
                                        help="also run one real sandboxed claude session (uses your Claude plan)")
     sub.add_parser("run").add_argument("crew")
@@ -109,6 +112,10 @@ def main(argv: list[str]) -> int:
     try:
         if args.cmd == "init":
             return init.run_wizard()
+        if args.cmd == "doctor" and args.repair_tamper:
+            for p in state.repair_tamper(args.repair_tamper):
+                print(f"cleared {p}")
+            return 0
         if args.cmd == "doctor":
             return doctor.report(doctor.check_all(args.crew, live=args.live))
         if args.cmd == "install":

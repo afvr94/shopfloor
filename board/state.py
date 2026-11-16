@@ -96,9 +96,12 @@ def _briefing(crew_id: str, key: str) -> tuple[dict | None, str | None]:
     """(briefing, None), (None, why it is tampered), or (None, None) when there is none."""
     path = paths.ticket_state_dir(crew_id, key) / "briefing.json"
     try:
-        text = path.read_text()
+        text = state.read_record(path).decode()
     except FileNotFoundError:
         return None, None
+    except signing.Tampered as e:
+        state.report_tampered(crew_id, key, path)
+        return None, str(e)
     except (OSError, UnicodeError) as e:
         text = f"unreadable: {e}"
     try:

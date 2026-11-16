@@ -44,7 +44,7 @@ def _scope(crew_id: str) -> str:
 def _load(crew_id: str) -> tuple[Path, dict]:
     path = _file(crew_id)
     try:
-        data = signing.read(_scope(crew_id), path.read_text(), str(path))
+        data = signing.read(_scope(crew_id), state.read_record(path).decode(), str(path))
     except FileNotFoundError:
         return path, {"next": 1, "lessons": []}
     except signing.Tampered as e:

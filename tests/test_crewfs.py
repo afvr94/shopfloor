@@ -274,6 +274,7 @@ TEMP_CALLS = {"gettempdir", "mkstemp", "mkdtemp", "NamedTemporaryFile", "Tempora
 ALLOWED = {
     ("engine/lib/runner.py", "claude_invocation"): "names the temp dir as a sandbox write root; opens nothing",
     ("engine/lib/cli.py", "_write_roots"): "names the temp dir as a read root; reads go through crewfs",
+    ("engine/lib/state.py", "locked_folders"): "lists <state>/<crew>/ticketstate, which only sf writes",
     ("engine/lib/state.py", "atomic_write"): "mkstemp(dir=) next to sf's own record, never in the temp dir",
     ("engine/lib/transport.py", "scratch"): "TemporaryDirectory(dir=) under sf's transport dir",
     ("engine/lib/paths.py", "crew_state_dir"): "creates <state>/<crew>, which only sf writes",

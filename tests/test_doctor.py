@@ -80,6 +80,7 @@ class Doctor(unittest.TestCase):
         (home / "crews" / "demo.json").write_text(json.dumps(cfg))
         (paths.crew_dir("demo") / "tickets").mkdir(parents=True)
         (paths.crew_dir("demo") / "worktrees").mkdir()
+        state.relock_all("demo")
         self.protected = True
         self.missing = set()
         self.invisible = self.api_error = False
@@ -242,7 +243,9 @@ class Doctor(unittest.TestCase):
             self.assertEqual(cli_main.main(["doctor", "demo"]), 1)
 
     def test_missing_crew_dirs_fail(self):
-        shutil.rmtree(paths.crew_dir("demo") / "worktrees")
+        with state.unlocked(paths.crew_dir("demo")) as declared:
+            declared["worktrees"] = None
+            shutil.rmtree(paths.crew_dir("demo") / "worktrees")
         self.assertEqual(self.failing(self.rows()), ["demo: crew dirs"])
 
     def test_missing_sandbox_tool_fails_with_hint(self):

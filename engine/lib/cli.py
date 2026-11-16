@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import json
 import os
@@ -485,6 +486,8 @@ def main(argv: list[str]) -> int:
     if not crew:
         print("SHOPFLOOR_CREW is not set", file=sys.stderr)
         return 2
+    with contextlib.suppress(OSError, ValueError):
+        state.relock_all(crew)  # a crash mid-window leaves a folder open; every sf call closes it again
     try:
         a.fn(a, config.load_crew(crew))
     except Usage as e:

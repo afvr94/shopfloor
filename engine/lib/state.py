@@ -4,6 +4,7 @@ import contextlib
 import fcntl
 import json
 import os
+import stat
 import tempfile
 import threading
 from datetime import datetime, timedelta, timezone
@@ -33,35 +34,211 @@ LOCKED_DIR, LOCKED_FILE, OPEN_DIR = 0o500, 0o400, 0o700
 _held = threading.local()
 
 
+def _rel(folder) -> tuple:
+    try:
+        return Path(os.path.abspath(folder)).relative_to(os.path.abspath(paths.shopfloor_home())).parts
+    except ValueError:
+        return ()
+
+
 def is_locked(folder) -> bool:
     """<state>/<crew>, its ticketstate folder and each ticketstate/<KEY>."""
-    try:
-        parts = Path(os.path.abspath(folder)).relative_to(os.path.abspath(paths.shopfloor_home())).parts
-    except ValueError:
-        return False
+    parts = _rel(folder)
     return parts[:1] == ("state",) and (len(parts) == 2 or (len(parts) in (3, 4) and parts[2] == "ticketstate"))
+
+
+def _entries(fd: int) -> dict:
+    """name -> identity. A folder is known by its inode alone: its mtime moves whenever a crew writes inside
+    tickets/ or another sf window opens below it."""
+    out = {}
+    with os.scandir(fd) as it:
+        for e in it:
+            st = e.stat(follow_symlinks=False)
+            out[e.name] = (st.st_ino,) if stat.S_ISDIR(st.st_mode) else \
+                (st.st_ino, st.st_size, st.st_mtime_ns, st.st_mode)
+    return out
+
+
+def _changed(before: dict, after: dict, declared: dict) -> list[str]:
+    out = []
+    for name in sorted(before.keys() | after.keys()):
+        got = after.get(name)
+        if before.get(name) == got:
+            continue
+        if name in declared:
+            want = declared[name]
+            if want is None or (got is not None and len(got) == 4 and got[:2] == want):
+                continue
+        out.append(name)
+    return out
 
 
 @contextlib.contextmanager
 def unlocked(folder):
-    """Write access to a locked folder for the length of the block; other folders pass through untouched."""
+    """Write access to a locked folder for the length of the block; other folders pass through untouched.
+
+    It yields a dict the caller fills with each name it changes: name -> (inode, size) the entry must end with,
+    or None for any change. The folder's entries are compared before it opens and after it relocks; anything
+    else that changed was written by someone else while the folder was open, and is flagged tampered."""
     key = os.path.abspath(folder)
-    held_dirs = _held.__dict__.setdefault("dirs", set())
-    if key in held_dirs or not is_locked(folder):
-        yield
+    held_dirs = _held.__dict__.setdefault("dirs", {})
+    if key in held_dirs:
+        yield held_dirs[key]
         return
+    if not is_locked(folder):
+        yield {}
+        return
+    declared: dict = {}
     fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
-        held_dirs.add(key)
+        before = _entries(fd)
+        held_dirs[key] = declared
         os.fchmod(fd, OPEN_DIR)
         try:
-            yield
+            yield declared
         finally:
             os.fchmod(fd, LOCKED_DIR)
-            held_dirs.discard(key)
+            held_dirs.pop(key, None)
+            after = _entries(fd)
+            os.close(fd)
+            fd = -1
+            _flag(folder, _changed(before, after, declared))
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
+MARK = ".tampered"
+
+
+def marker(path) -> Path:
+    return Path(path).with_name(Path(path).name + MARK)
+
+
+# The signed records, and the ticket folders that hold them; any other name changed in a window is reported only.
+RECORDS = {"state.json", "briefing.json", "commands.jsonl", "commands.cursor", "lessons.json"}
+_FLAG_ROUNDS, _FLAG_REPORTS = 50, 20
+
+
+def _flag(folder, names: list[str]) -> None:
+    """Report what changed behind sf's back, and leave a marker beside each record that did. Claude Code's Write
+    and Edit can only create or replace a file, never delete one, so a marker outlives any later write and the
+    record stays refused until the owner clears it. Writing a marker opens a window too; a writer still racing
+    there queues more work here instead of recursing, and the rounds are capped."""
+    parts = _rel(folder)
+    if not names or parts[:1] != ("state",):
+        return
+    work = getattr(_held, "flagging", None)
+    if work is not None:
+        work.append((folder, names))
+        return
+    _held.flagging = work = [(folder, names)]
+    try:
+        for _ in range(_FLAG_ROUNDS):
+            if not work:
+                break
+            folder, names = work.pop()
+            parts = _rel(folder)
+            for n, name in enumerate(names):
+                path = Path(folder) / name
+                key = parts[3] if len(parts) == 4 else name if len(parts) == 3 else None
+                key = key if key and paths.TICKET_KEY_RE.fullmatch(key) else None
+                with contextlib.suppress(OSError, ValueError):
+                    if n < _FLAG_REPORTS:
+                        report_tampered(parts[1], key, path, " (changed by another writer while sf had the folder open)")
+                    elif n == _FLAG_REPORTS:
+                        report_tampered(parts[1], None, folder, f" ({len(names) - n} more names changed)")
+                    record = name in RECORDS or (len(parts) == 3 and key == name)
+                    if record and not os.path.lexists(marker(path)):
+                        atomic_write(marker(path), "changed by another writer while sf had the folder open\n")
+    finally:
+        _held.flagging = None
+
+
+def read_record(path) -> bytes:
+    """A signed record's bytes. Tampered if it or its folder carries a tamper marker, or it isn't a regular,
+    non-link file you own with sf's mode for its folder (0400 in a locked one); FileNotFoundError passes through."""
+    path = Path(path)
+    for p in (path, path.parent):
+        if os.path.lexists(marker(p)):
+            raise signing.Tampered(f"record tampered: {p} was changed by another writer while sf had its folder "
+                                   f"open; check it, then run `shopfloor doctor --repair-tamper <crew>`")
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        raise
+    except OSError as e:
+        raise signing.Tampered(f"record tampered: {path} can't be opened ({e.strerror})") from None
+    with os.fdopen(fd, "rb") as f:
+        st = os.fstat(fd)
+        want = _file_mode(path.parent)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != want:
+            raise signing.Tampered(f"record tampered: {path} must be a regular file you own with mode {want:04o}")
+        return f.read()
+
+
+def locked_folders(crew_id: str) -> list[Path]:
+    crew = paths.crew_dir(crew_id)
+    root = crew / "ticketstate"
+    found = [crew, root]
+    with contextlib.suppress(OSError):
+        found += sorted(root / n for n in os.listdir(root) if paths.TICKET_KEY_RE.fullmatch(n))
+    return [p for p in found if p.is_dir() and not p.is_symlink()]
+
+
+def repair_tamper(crew_id: str) -> list[Path]:
+    """Remove a crew's tamper markers once the owner has checked the records; returns what it removed."""
+    gone = []
+    for folder in locked_folders(crew_id):
+        for name in sorted(os.listdir(folder)):
+            if name.endswith(MARK):
+                remove(folder / name)
+                gone.append(folder / name)
+    return gone
+
+
+def _sweep(folder: Path, fix: bool) -> list[str]:
+    """What is open in locked folder `folder`; with `fix`, relock it under the folder's flock."""
+    loose = []
+    fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        if fix:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        for name in sorted(os.listdir(fd)):
+            st = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            if not stat.S_ISREG(st.st_mode) or stat.S_IMODE(st.st_mode) == LOCKED_FILE:
+                continue
+            loose.append(f"{folder / name} is {stat.S_IMODE(st.st_mode):04o}")
+            if fix:
+                with contextlib.suppress(OSError):
+                    f = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+                    try:
+                        os.fchmod(f, LOCKED_FILE)
+                    finally:
+                        os.close(f)
+        mode = stat.S_IMODE(os.fstat(fd).st_mode)
+        if mode != LOCKED_DIR:
+            loose.append(f"{folder} is {mode:04o}")
+            if fix:
+                os.fchmod(fd, LOCKED_DIR)
     finally:
         os.close(fd)
+    return loose
+
+
+def _sweep_all(crew_id: str, fix: bool) -> list[str]:
+    return [x for f in locked_folders(crew_id) for x in _sweep(f, fix)]
+
+
+def relock_all(crew_id: str) -> None:
+    """Relock what a crash mid-window or a hand edit left open: every locked folder and file of the crew. Cheap
+    enough to run at every start."""
+    _sweep_all(crew_id, fix=True)
+
+
+def open_locks(crew_id: str) -> list[str]:
+    return _sweep_all(crew_id, fix=False)
 
 
 def make_dir(folder) -> Path:
@@ -69,7 +246,8 @@ def make_dir(folder) -> Path:
     folder = Path(folder)
     if not folder.is_dir():
         make_dir(folder.parent)
-        with unlocked(folder.parent), contextlib.suppress(FileExistsError):
+        with unlocked(folder.parent) as declared, contextlib.suppress(FileExistsError):
+            declared[folder.name] = None
             os.mkdir(folder, LOCKED_DIR if is_locked(folder) else OPEN_DIR)
     return folder
 
@@ -81,14 +259,16 @@ def _file_mode(folder) -> int:
 def atomic_write(path: Path, data: str) -> None:
     path = Path(path)
     folder = make_dir(path.parent)
-    with unlocked(folder):
+    raw = data.encode()
+    with unlocked(folder) as declared:
         fd, tmp = tempfile.mkstemp(dir=folder, prefix=path.name + ".")
         try:
-            with os.fdopen(fd, "w") as f:
-                f.write(data)
+            with os.fdopen(fd, "wb") as f:
+                f.write(raw)
                 f.flush()
                 os.fsync(f.fileno())
                 os.fchmod(f.fileno(), _file_mode(folder))
+                declared[path.name] = (os.fstat(f.fileno()).st_ino, len(raw))
             os.replace(tmp, path)
         except BaseException:
             with contextlib.suppress(OSError):
@@ -100,7 +280,7 @@ def append_line(path: Path, line: str) -> None:
     """Append `line`, starting it on a new line if the last write was torn."""
     path = Path(path)
     folder = make_dir(path.parent)
-    with unlocked(folder):
+    with unlocked(folder) as declared:
         fd = os.open(path, os.O_RDONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:
             os.fchmod(fd, 0o600)
@@ -115,6 +295,7 @@ def append_line(path: Path, line: str) -> None:
                 while data:
                     data = data[os.write(w, data):]
                 os.fsync(w)
+                declared[path.name] = (b.st_ino, os.fstat(w).st_size)
             finally:
                 os.close(w)
         finally:
@@ -124,7 +305,8 @@ def append_line(path: Path, line: str) -> None:
 
 def remove(path: Path) -> None:
     path = Path(path)
-    with unlocked(path.parent), contextlib.suppress(FileNotFoundError):
+    with unlocked(path.parent) as declared, contextlib.suppress(FileNotFoundError):
+        declared[path.name] = None
         os.unlink(path)
 
 
@@ -136,7 +318,8 @@ def held(path):
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except FileNotFoundError:
         folder = make_dir(path.parent)
-        with unlocked(folder):
+        with unlocked(folder) as declared:
+            declared[path.name] = None
             fd = os.open(path, os.O_RDONLY | os.O_CREAT | os.O_NOFOLLOW, _file_mode(folder))
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
@@ -187,15 +370,16 @@ def acquire_lock(path: Path, stale_minutes: int = 45) -> bool:
     # The guard serializes the stale check + replace so two processes can't both reclaim.
     with held(f"{path}.guard"):
         try:
-            with unlocked(make_dir(path.parent)):
+            with unlocked(make_dir(path.parent)) as declared:
+                declared[path.name] = None
                 fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, _file_mode(path.parent))
+                with os.fdopen(fd, "w") as f:  # inside the window: a write after it would look foreign
+                    f.write(body)
         except FileExistsError:
             if _fresh(_read_json(path), stale_minutes):
                 return False
             atomic_write(path, body)
             return True
-        with os.fdopen(fd, "w") as f:
-            f.write(body)
         return True
 
 
@@ -271,7 +455,7 @@ def load_ticket(crew_id: str, key: str) -> dict:
         return _blank(key)
     try:
         try:
-            text = path.read_text()
+            text = read_record(path).decode()
         except (OSError, UnicodeError) as e:
             raise signing.Tampered(f"record tampered: {path} can't be read ({e})") from None
         stored = signing.read(_ticket_scope(crew_id, key), text, str(path))

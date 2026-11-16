@@ -157,6 +157,22 @@ def ls_remote(cfg: dict, repo: str) -> str | None:
     return None if out else f"origin has no {base} branch"
 
 
+def _locks_problem(cid: str) -> str | None:
+    loose = state.open_locks(cid)
+    if loose:
+        return (f"{len(loose)} open while idle, e.g. {loose[0]} (a crash mid-write or a hand edit; "
+                f"the next shopfloor run, sf call or board start relocks them)")
+    return None
+
+
+def _markers_problem(cid: str) -> str | None:
+    marks = [f / n for f in state.locked_folders(cid) for n in sorted(os.listdir(f)) if n.endswith(state.MARK)]
+    if marks:
+        return (f"{len(marks)} record(s) changed by another writer while sf had their folder open, e.g. "
+                f"{marks[0]}; check them, then run: shopfloor doctor --repair-tamper {cid}")
+    return None
+
+
 def _crew_rows(cid: str, deps: dict, live: bool = False) -> list[Row]:
     try:
         cfg = config.load_crew(cid)
@@ -174,6 +190,8 @@ def _crew_rows(cid: str, deps: dict, live: bool = False) -> list[Row]:
     rows.append(_guarded(f"{cid}: guard self-test", lambda: None if decide(
         "Bash", {"command": "git push origin main"}, str(paths.shopfloor_home()), live_cfg)
         else "git push origin main was allowed"))
+    rows.append(_guarded(f"{cid}: locked folders", lambda: _locks_problem(cid)))
+    rows.append(_guarded(f"{cid}: tamper markers", lambda: _markers_problem(cid)))
     missing = [d for d in ("worktrees", "tickets") if not (paths.crew_dir(cid) / d).is_dir()]
     rows.append((not missing, f"{cid}: crew dirs", f"missing {', '.join(missing)} (run shopfloor install)" if missing else ""))
     if live:
