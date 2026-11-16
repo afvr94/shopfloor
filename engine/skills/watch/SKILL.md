@@ -5,7 +5,7 @@ description: Tends one Shopfloor ticket's open pull requests - fixes failing che
 
 # Shopfloor watch
 
-Load `/shopfloor:rules` first. Input is a ticket key in stage `in_review`. Safe to run repeatedly.
+Load `/shopfloor:rules` first. Input is a ticket key in stage `in_review` with at least one PR. Safe to run repeatedly. If `prs` is empty (a dry-run build), there is nothing to tend: stop.
 
 ## 1. Look
 `sf ticket show <KEY>` lists its PRs and gives `dir`, the absolute ticket folder; write every draft file there and pass absolute paths. For each, `gh pr view <url> --json state,statusCheckRollup,reviewDecision,comments,reviews`. Read-only `gh pr` and `gh run` commands are fine; anything that changes a PR goes through `sf`, except the replies in step 3.

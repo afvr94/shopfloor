@@ -86,6 +86,18 @@ class Skills(unittest.TestCase):
         self.assertIn("next tick's sweep", t["tick"])
         self.assertIn("/shopfloor:spec <KEY>", t["tick"])
 
+    def test_every_queued_command_has_a_route_in_tick(self):
+        tick = _texts()["tick"]
+        for cmd in ("pause", "resume", "lesson", "forget", "answer", "approve", "adjust", "retry", "go", "cancel"):
+            self.assertIn(f"`{cmd}", tick, cmd)
+        for need in ("sf commands ack <seq>` once", "`eligible`", "sf runs show <KEY>", "empty `prs`"):
+            self.assertIn(need, tick)
+
+    def test_build_writes_a_briefing_draft_for_sf(self):
+        build = _texts()["build"]
+        self.assertIn("sf briefing write <KEY> <dir>/briefing-draft.json", build)
+        self.assertNotIn("Write `<dir>/briefing.json`", build)
+
     def test_rules_lists_core_deal_breakers(self):
         t = _texts()["rules"].lower().replace('"', "")
         for d in DEAL_BREAKERS:
