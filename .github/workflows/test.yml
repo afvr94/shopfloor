@@ -1,0 +1,33 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests
+        # a throwaway home, so no test can touch the runner's real config or services
+        run: |
+          export HOME="$(mktemp -d)" SHOPFLOOR_HOME="$(mktemp -d)/shopfloor"
+          git config --global user.name ci
+          git config --global user.email ci@example.org
+          python -m unittest -v 2>&1 | tail -40
+          exit "${PIPESTATUS[0]}"
