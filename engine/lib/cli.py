@@ -69,9 +69,10 @@ def _write_roots(cfg: dict) -> list:
     return [paths.worktrees_dir(cfg["id"]), paths.tickets_dir(cfg["id"]), tempfile.gettempdir(), "/tmp"]
 
 
-def _crew_file(cfg: dict, path: str) -> str:
-    """A file the crew named, read only from inside its write roots, without following any link, and no secret."""
-    root, rel = crewfs.locate(_write_roots(cfg), path)
+def _crew_file(cfg: dict, key: str, path: str) -> str:
+    """A file the crew named (absolute, or relative to the ticket folder), read only from inside its write roots,
+    without following any link, and no secret."""
+    root, rel = crewfs.locate(_write_roots(cfg), path, base=paths.ticket_dir(cfg["id"], key))
     if _under(os.path.join(os.path.realpath(root), rel), [os.path.realpath(x) for x in config.secret_paths(cfg)]):
         raise Refused(f"sf does not read secret files: {path}")
     return crewfs.read_bytes(root, rel).decode()
@@ -132,7 +133,7 @@ def h_transition(a, cfg):
 def h_comment(a, cfg):
     if _dry(cfg, a.key, f"comment on {a.key}"):
         return
-    body = sign(redact(_crew_file(cfg, a.body_file)), cfg["voice"]["name"])
+    body = sign(redact(_crew_file(cfg, a.key, a.body_file)), cfg["voice"]["name"])
     tracker = _make("tracker", cfg)
     if a.update:
         tracker.update_comment(a.key, a.update, body)
@@ -159,7 +160,7 @@ def h_chat_open(a, cfg):
 
 
 def h_chat_post(a, cfg):
-    print(_make("chat", cfg).post(_thread(cfg, a.key), redact(_crew_file(cfg, a.text_file))))
+    print(_make("chat", cfg).post(_thread(cfg, a.key), redact(_crew_file(cfg, a.key, a.text_file))))
 
 
 def h_chat_ask(a, cfg):
@@ -198,7 +199,9 @@ def h_ticket_set(a, cfg):
             raise Usage(f"--field needs name=value, got {f!r}")
         if name == "branch":
             raise Refused("sf picks the ticket branch at sf worktree prepare; read it from sf ticket show")
-        changes[name] = json.loads(value) if name in ("prs", "thread") else int(value) if name == "fixRounds" else value
+        if name == "prs":
+            raise Refused("sf ship records the ticket's PRs; read them from sf ticket show")
+        changes[name] = json.loads(value) if name == "thread" else int(value) if name == "fixRounds" else value
     if a.stage:
         changes["stage"] = a.stage
     if not changes:
@@ -227,7 +230,7 @@ def h_lessons_edit(a, cfg):
 
 
 def h_briefing_write(a, cfg):
-    print(briefing.write_briefing(cfg["id"], a.key, json.loads(_crew_file(cfg, a.file))))
+    print(briefing.write_briefing(cfg["id"], a.key, json.loads(_crew_file(cfg, a.key, a.file))))
 
 
 def h_briefing_url(a, cfg):
@@ -252,7 +255,7 @@ def h_ship(a, cfg):
     _repo(cfg, a.repo)
     if _dry(cfg, a.key, f"open a PR for {a.key} in {a.repo}"):
         return
-    url = _make("gitflow", cfg).ship(a.key, a.repo, a.title, redact(_crew_file(cfg, a.body_file)))
+    url = _make("gitflow", cfg).ship(a.key, a.repo, a.title, redact(_crew_file(cfg, a.key, a.body_file)))
     m = re.search(r"/pull/(\d+)", url)
     if not m:
         raise Refused(f"could not read a PR number from {url}")
@@ -349,7 +352,7 @@ def h_pr_reply(a, cfg):
     gh = _repo(cfg, a.repo)["github"]
     if not any(p["repo"] == a.repo and p["number"] == a.number for p in state.load_ticket(cfg["id"], a.key)["prs"]):
         raise Refused(f"{a.repo}#{a.number} is not one of {a.key}'s PRs")
-    body = redact(_crew_file(cfg, a.body_file))
+    body = redact(_crew_file(cfg, a.key, a.body_file))
     if _dry(cfg, a.key, f"reply on {a.repo}#{a.number}"):
         return
     print(flowbase.gh_with_body(["pr", "comment", str(a.number), "-R", gh], body).strip())

@@ -68,6 +68,11 @@ class Unit(unittest.TestCase):
             with self.subTest(p), self.assertRaises(crewfs.CrewFsError):
                 crewfs.locate([self.root], p)
         self.assertEqual(crewfs.locate([self.root], f"{self.root}/a/b/f.txt"), (self.root, "a/b/f.txt"))
+        base = self.root / "a"
+        self.assertEqual(crewfs.locate([self.root], "b/f.txt", base=base), (self.root, "a/b/f.txt"))
+        for p in ("../../outside/b/f.txt", "b/../../x"):
+            with self.subTest(p), self.assertRaises(crewfs.CrewFsError):
+                crewfs.locate([self.root], p, base=base)
 
     def test_write_creates_exclusively_and_replaces_a_planted_link(self):
         target = self.outside / "b" / "f.txt"

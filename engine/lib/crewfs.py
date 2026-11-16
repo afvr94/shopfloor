@@ -152,9 +152,11 @@ def move_in(src, root, rel, replace: bool = True) -> None:
         os.rename(src, parts[-1], dst_dir_fd=d)
 
 
-def locate(roots, path: str) -> tuple:
-    """(root, rel) for an absolute path a crew named inside one of `roots`, matched as written or through the
-    root's real path, ignoring case as macOS does."""
+def locate(roots, path: str, base=None) -> tuple:
+    """(root, rel) for a path a crew named inside one of `roots`, matched as written or through the root's real
+    path, ignoring case as macOS does. A relative path is taken relative to `base` (the ticket folder)."""
+    if base is not None and not os.path.isabs(path):
+        path = os.path.join(str(base), path)
     if not os.path.isabs(path) or ".." in path.split("/"):
         raise CrewFsError(f"not a plain absolute path: {path}")
     p = os.path.normpath(path)

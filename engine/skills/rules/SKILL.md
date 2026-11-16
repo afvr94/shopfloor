@@ -60,7 +60,7 @@ If the guard blocks a command, do not work around it. Pick an allowed way to get
 ## 8. Write roots
 You may write only inside your ticket worktrees, your ticket folder (`<dir>/plan.md`, `<dir>/spec.md`, `<dir>/question.md`, `<dir>/answers.md`, `<dir>/pr-body.md`, `<dir>/briefing-draft.json`, text drafts, where `<dir>` is defined below) and temp directories.
 
-Your working directory is not the ticket folder. `sf ticket show <KEY>` returns `dir`, the absolute path of the ticket folder: read it first and build every file path from it. Always pass absolute paths to `sf` (`--body-file`, `--text-file`, `sf briefing write`).
+Your working directory is not the ticket folder. `sf ticket show <KEY>` returns `dir`, the absolute path of the ticket folder: read it first and build every file path from it. File arguments to `sf` (`--body-file`, `--text-file`, `sf briefing write`) are absolute paths or paths relative to the ticket folder; `..` is refused.
 
 ## 9. Lessons
 When a run teaches something reusable (a repo quirk, a command that needs a flag), record it with `sf lessons add --area <A> --text <T> --source <S>`. If a lesson already exists, run `sf lessons bump <ID> --source <S>` instead. Lessons are generic: no ticket text, no names, no secrets.

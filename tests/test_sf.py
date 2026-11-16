@@ -196,10 +196,22 @@ class SfTest(SfCase):
                          [{"repo": "app", "number": 7, "url": "https://github.com/o/app/pull/7"}])
 
     def test_ticket_set_parses_json_fields(self):
-        code, _, _ = self.sf("ticket", "set", "ENG-1", "--stage", "building", "--field", 'prs=[{"repo":"app"}]')
+        code, _, _ = self.sf("ticket", "set", "ENG-1", "--stage", "building", "--field", 'thread={"ts":"1"}')
         t = state.load_ticket("demo", "ENG-1")
-        self.assertEqual((code, t["stage"], t["prs"]), (0, "building", [{"repo": "app"}]))
+        self.assertEqual((code, t["stage"], t["thread"]), (0, "building", {"ts": "1"}))
         self.assertEqual(self.sf("ticket", "set", "ENG-1", "--field", "bogus=1")[0], 1)
+
+    def test_ticket_set_never_takes_the_prs(self):
+        code, _, err = self.sf("ticket", "set", "ENG-1", "--field", 'prs=[{"repo":"app","number":1,"url":"u"}]')
+        self.assertEqual((code, state.load_ticket("demo", "ENG-1")["prs"]), (1, []))
+        self.assertIn("sf ship records", err)
+
+    def test_file_arguments_may_be_relative_to_the_ticket_folder(self):
+        self.sf("ticket", "show", "ENG-1")
+        (paths.ticket_dir("demo", "ENG-1") / "c.md").write_text("relative body")
+        self.assertEqual(self.sf("tracker", "comment", "ENG-1", "--body-file", "c.md")[0], 0)
+        self.assertIn("relative body", self.tracker.calls[-1][2])
+        self.assertEqual(self.sf("tracker", "comment", "ENG-1", "--body-file", "../ENG-2/c.md")[0], 1)
 
     def test_ticket_set_never_takes_the_branch(self):
         code, _, err = self.sf("ticket", "set", "ENG-1", "--field", "branch=shopfloor/xyz-9-victim")
