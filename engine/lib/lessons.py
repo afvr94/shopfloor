@@ -10,13 +10,11 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import json
-import os
 import re
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import paths
+from . import paths, signing, state
 from .redact import find_sensitive
 
 MAX_ACTIVE = 80
@@ -40,11 +38,19 @@ def _file(crew_id: str) -> Path:
     return paths.crew_state_dir(crew_id) / "lessons.json"
 
 
-def _load(path: Path) -> dict:
+def _scope(crew_id: str) -> str:
+    return f"lessons/{crew_id}"
+
+
+def _load(crew_id: str) -> tuple[Path, dict]:
+    path = _file(crew_id)
     try:
-        data = json.loads(path.read_text())
+        data = signing.unseal(_scope(crew_id), json.loads(path.read_text()), str(path))
     except FileNotFoundError:
-        return {"next": 1, "lessons": []}
+        return path, {"next": 1, "lessons": []}
+    except signing.Tampered as e:
+        state.report_tampered(crew_id, None, path)
+        raise LessonError(f"{e}; sf won't use lessons until you check it") from None
     except (OSError, ValueError) as e:
         raise LessonError(f"cannot read {path}: {e}")
     if not isinstance(data, dict) or not isinstance(data.get("lessons"), list) or not isinstance(data.get("next"), int):
@@ -53,29 +59,16 @@ def _load(path: Path) -> dict:
         if not (isinstance(l, dict) and isinstance(l.get("id"), int) and isinstance(l.get("area"), str)
                 and isinstance(l.get("text"), str) and isinstance(l.get("state"), str)):
             raise LessonError(f"{path} has a malformed lesson entry")
-    return data
-
-
-def _save(path: Path, data: dict) -> None:
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".")
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, indent=1, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+    return path, data
 
 
 @contextlib.contextmanager
 def _locked(crew_id: str):
-    path = _file(crew_id)
-    with open(str(path) + ".lock", "a") as lock:
+    with open(str(_file(crew_id)) + ".lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        yield path, _load(path)
+        path, data = _load(crew_id)
+        yield data
+        state.atomic_write(path, json.dumps(signing.seal(_scope(crew_id), data), indent=1, ensure_ascii=False))
 
 
 def _active(data: dict) -> list[dict]:
@@ -116,7 +109,7 @@ def _bump(l: dict, source: str) -> None:
 
 
 def show(crew_id: str, area: str | None = None) -> list[dict]:
-    data = _load(_file(crew_id))
+    _, data = _load(crew_id)
     prefix = (area or "").strip().lower()
     rows = [l for l in _active(data)
             if not prefix or l["area"] in (prefix, "all")
@@ -130,11 +123,10 @@ def add(crew_id: str, area: str, text: str, source: str) -> dict:
     if not (AREA.fullmatch(area) or area == "all"):
         raise LessonError("area must look like `repo` or `repo/area` (lowercase), or `all`")
     text = _check_text(text, source)
-    with _locked(crew_id) as (path, data):
+    with _locked(crew_id) as data:
         same = next((l for l in _active(data) if l["area"] == area and _norm(l["text"]) == _norm(text)), None)
         if same:
             _bump(same, source)
-            _save(path, data)
             return _public(same)
         stamp = _now()
         lesson = {"id": data["next"], "area": area, "text": text, "count": 1, "state": "active",
@@ -145,33 +137,29 @@ def add(crew_id: str, area: str, text: str, source: str) -> dict:
         if len(live) > MAX_ACTIVE:
             old = min(live, key=lambda l: (l.get("count", 1), l.get("last", l["added"])))
             old["state"], old["ended"] = "retired", stamp
-        _save(path, data)
         return _public(lesson)
 
 
 def bump(crew_id: str, lesson_id: str, source: str) -> dict:
     _check_clean(source)
-    with _locked(crew_id) as (path, data):
+    with _locked(crew_id) as data:
         l = _find_active(data, lesson_id)
         _bump(l, source)
-        _save(path, data)
         return _public(l)
 
 
 def forget(crew_id: str, lesson_id: str) -> dict:
-    with _locked(crew_id) as (path, data):
+    with _locked(crew_id) as data:
         l = _find_active(data, lesson_id)
         l["state"], l["ended"] = "forgotten", _now()
-        _save(path, data)
         return _public(l)
 
 
 def edit(crew_id: str, lesson_id: str, text: str, source: str) -> dict:
     text = _check_text(text, source)
-    with _locked(crew_id) as (path, data):
+    with _locked(crew_id) as data:
         l = _find_active(data, lesson_id)
         l["text"] = text
         l["last"] = _now()
         l["sources"] = (l.get("sources") or [])[-4:] + [source[:_SOURCE_MAX]]
-        _save(path, data)
         return _public(l)

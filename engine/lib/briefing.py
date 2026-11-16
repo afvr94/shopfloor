@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-from . import config, paths, redact
+from . import config, paths, redact, signing
 from .state import atomic_write
 
 MAX_BYTES = 200_000
@@ -79,8 +79,12 @@ def write_briefing(crew_id: str, key: str, data: dict) -> Path:
     path = paths.ticket_state_dir(crew_id, key) / "briefing.json"
     if errs := validate_briefing(data):
         raise BriefingError("; ".join(errs))
-    atomic_write(path, json.dumps(data, indent=2) + "\n")
+    atomic_write(path, json.dumps(signing.seal(scope(crew_id, key), data), indent=2) + "\n")
     return path
+
+
+def scope(crew_id: str, key: str) -> str:
+    return f"briefing/{crew_id}/{key}"
 
 
 def briefing_url(crew_id: str, key: str) -> str:

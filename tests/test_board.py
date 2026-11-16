@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from board import server, sessions
-from engine.lib import paths, state
+from engine.lib import briefing, paths, signing, state
 from engine.lib.commands import CommandQueue
 
 CREW = {
@@ -88,10 +88,13 @@ class ServerTest(BoardCase):
     def test_briefing_route_renders_and_404s(self):
         d = paths.ticket_state_dir("demo", "ENG-1")
         d.mkdir(parents=True)
-        (d / "briefing.json").write_text(json.dumps({"title": "Hello brief", "whatWhy": "because"}))
+        brief = {"title": "Hello brief", "whatWhy": "because"}
+        (d / "briefing.json").write_text(json.dumps(signing.seal(briefing.scope("demo", "ENG-1"), brief)))
         code, text = self.req("GET", "/briefing/demo/ENG-1")
         self.assertEqual(code, 200)
         self.assertIn("Hello brief", text)
+        (d / "briefing.json").write_text(json.dumps({**brief, "title": "Forged brief"}))
+        self.assertEqual(self.req("GET", "/briefing/demo/ENG-1")[0], 404)
         for p in ("/briefing/demo/ENG-2", "/briefing/demo/../ENG-1", "/briefing/nope/ENG-1",
                   "/briefing/demo/ENG-1%0A"):
             self.assertEqual(self.req("GET", p)[0], 404, p)

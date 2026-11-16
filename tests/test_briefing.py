@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from board import briefing_page
-from engine.lib import briefing, paths
+from engine.lib import briefing, paths, signing
 
 TOKEN = "gh" + "p_" + "a" * 20
 
@@ -42,7 +42,7 @@ class Writer(Base):
         d["size"] = "small"
         p = briefing.write_briefing("crew-a", "ENG-1", d)
         self.assertEqual(p, paths.ticket_state_dir("crew-a", "ENG-1") / "briefing.json")
-        self.assertEqual(json.loads(p.read_text()), d)
+        self.assertEqual(signing.unseal(briefing.scope("crew-a", "ENG-1"), json.loads(p.read_text()), "b"), d)
         self.assertEqual([x.name for x in p.parent.iterdir()], ["briefing.json"])
 
     def test_rejects_missing_fields_and_wrong_types(self):

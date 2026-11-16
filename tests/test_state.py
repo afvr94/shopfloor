@@ -8,7 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from engine.lib import paths, state
+from engine.lib import paths, signing, state
 
 
 def iso(dt: datetime) -> str:
@@ -127,7 +127,7 @@ class TicketTest(Base):
         p = paths.ticket_state_dir("a", "ENG-1") / "state.json"
         d = json.loads(p.read_text())
         d["updatedAt"] = "2999-01-01T00:00:00Z"
-        p.write_text(json.dumps(d))
+        p.write_text(json.dumps(signing.seal("ticket/a/ENG-1", d)))
         self.assertEqual([t["key"] for t in state.list_tickets("a")], ["ENG-1", "ENG-2"])
         self.assertEqual(state.list_tickets("nobody"), [])
 

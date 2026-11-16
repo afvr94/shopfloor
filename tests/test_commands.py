@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from engine.lib.commands import COMMANDS, CommandQueue, CommandQueueError, parse
 
@@ -24,6 +26,13 @@ class ParseTest(unittest.TestCase):
 
 
 class QueueTest(unittest.TestCase):
+    def setUp(self):
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        patch = mock.patch.dict(os.environ, {"SHOPFLOOR_HOME": home.name})
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def test_ack_is_cumulative(self):
         q = CommandQueue(Path(tempfile.mkdtemp()))
         for i in range(1, 5):

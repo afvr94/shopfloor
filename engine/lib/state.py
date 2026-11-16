@@ -8,7 +8,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import paths
+from . import paths, signing
 from .redact import redact
 
 STAGES = ("claimed", "planning", "needs_you", "waiting", "building", "in_review",
@@ -138,8 +138,34 @@ def _blank(key: str) -> dict:
             "branch": "", "question": "", "fixRounds": 0, "reviewSeen": "", "updatedAt": "", "history": []}
 
 
+_reported: set = set()
+
+
+def report_tampered(crew_id: str, key: str | None, what) -> None:
+    """One run line per damaged record per process, so a board polling every few seconds doesn't flood the log."""
+    if (crew_id, str(what)) in _reported:
+        return
+    _reported.add((crew_id, str(what)))
+    with contextlib.suppress(OSError, ValueError):
+        log_run(crew_id, key, "tampered", f"record tampered: {what}")
+
+
+def _ticket_scope(crew_id: str, key: str) -> str:
+    return f"ticket/{crew_id}/{key}"
+
+
 def load_ticket(crew_id: str, key: str) -> dict:
-    stored = _read_json(paths.ticket_state_dir(crew_id, key) / "state.json") or {}
+    """The ticket's record. One that fails its signature check comes back as a needs_you ticket with no branch,
+    PRs or thread, marked tampered, so nothing acts on it until the owner looks."""
+    path = paths.ticket_state_dir(crew_id, key) / "state.json"
+    if not os.path.lexists(path):
+        return _blank(key)
+    try:
+        stored = signing.unseal(_ticket_scope(crew_id, key), _read_json(path), str(path))
+    except signing.Tampered as e:
+        report_tampered(crew_id, key, path)
+        return {**_blank(key), "stage": "needs_you", "tampered": True,
+                "question": f"{e}. sf won't act on {key} until you check it; delete the file to start the ticket over."}
     return {**_blank(key), **stored}
 
 
@@ -156,12 +182,14 @@ def save_ticket(crew_id: str, key: str, **changes) -> dict:
     with open(path.parent / "state.lock", "a") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)
         t = load_ticket(crew_id, key)
+        if t.get("tampered"):
+            raise signing.Tampered(t["question"])
         now = _now()
         if "stage" in changes and stage != t["stage"]:
             t["history"].append({"ts": now, "stage": stage})
         t.update(changes)
         t["updatedAt"] = now
-        atomic_write(path, json.dumps(t, indent=2))
+        atomic_write(path, json.dumps(signing.seal(_ticket_scope(crew_id, key), t), indent=2))
     return t
 
 

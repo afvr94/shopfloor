@@ -64,8 +64,9 @@ function ticketRow(crewId, t) {
   const issue = link(t.url, "Ticket");
   if (issue) links.append(issue);
   links.append(el("a", { href: "/briefing/" + encodeURIComponent(crewId) + "/" + encodeURIComponent(t.key) }, "Briefing"));
+  const tag = t.tampered ? el("span", { class: "badge paused" }, "Tampered") : null;
   return el("li", { class: "ticket" },
-    el("div", {}, el("span", { class: "key" }, t.key), el("span", { class: "title" }, t.title || "")),
+    el("div", {}, el("span", { class: "key" }, t.key), tag, el("span", { class: "title" }, t.title || "")),
     links);
 }
 
@@ -152,6 +153,10 @@ function buildLane(c, color, sess) {
   head.append(...runNowButton(c.id));
   const meta = [c.gitFlow && c.gitFlow.type, c.nextRun ? "Next run " + when(c.nextRun) : "No scheduled run"];
   lane.append(el("p", { class: "meta" }, meta.filter(Boolean).join(" · ")));
+  if ((c.tampered || []).length) {
+    head.append(el("span", { class: "badge paused" }, "Tampered"));
+    for (const msg of c.tampered) lane.append(el("div", { class: "error", role: "alert" }, msg));
+  }
 
   const questions = c.questions || [];
   if (questions.length) {

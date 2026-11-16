@@ -4,8 +4,9 @@ import contextlib
 import fcntl
 import json
 import os
-import tempfile
 from pathlib import Path
+
+from . import signing, state
 
 COMMANDS = ("approve", "adjust", "retry", "go", "pause", "resume", "cancel", "lesson", "forget")
 
@@ -27,8 +28,12 @@ def parse(text: str) -> dict:
 
 
 class CommandQueue:
+    """Every line and the cursor carry sf's signature: whoever appends (sf, the board, the listener) runs outside
+    the sandbox and signs, so a line a crew slipped in is reported and skipped, and a forged cursor stops the queue."""
+
     def __init__(self, state_dir: Path):
         self.dir = Path(state_dir)
+        self.crew = self.dir.name
         self.log = self.dir / "commands.jsonl"
         self.cursor = self.dir / "commands.cursor"
         self.lock = self.dir / "commands.lock"
@@ -46,12 +51,16 @@ class CommandQueue:
         except FileNotFoundError:
             return []
         rows = []
-        for line in lines:
+        for n, line in enumerate(lines, 1):
             try:
-                rows.append(json.loads(line))
+                raw = json.loads(line)
             except ValueError:  # torn line from a crash
                 continue
-        return rows
+            try:
+                rows.append(signing.unseal(f"commands/{self.crew}", raw, f"{self.log} line {n}"))
+            except signing.Tampered:
+                state.report_tampered(self.crew, None, f"{self.log} line {n}")
+        return [r for r in rows if isinstance(r.get("seq"), int)]
 
     def _acked(self) -> set[int]:
         try:
@@ -59,8 +68,12 @@ class CommandQueue:
         except FileNotFoundError:
             return set()
         try:
-            return {int(n) for n in json.loads(raw)}
-        except (ValueError, TypeError):
+            return {int(n) for n in signing.unseal(f"commands.cursor/{self.crew}", json.loads(raw),
+                                                   str(self.cursor))["acked"]}
+        except signing.Tampered as e:
+            state.report_tampered(self.crew, None, self.cursor)
+            raise CommandQueueError(f"{e}; sf won't act on commands until you check it") from None
+        except (ValueError, TypeError, KeyError):
             raise CommandQueueError(f"{self.cursor} is corrupt; fix or remove it") from None
 
     def append(self, key: str | None, source: str, text: str, ts: str) -> bool:
@@ -70,7 +83,7 @@ class CommandQueue:
                 return False
             row = {"seq": max((r["seq"] for r in rows), default=0) + 1, "key": key, "source": source,
                    **parse(text), "text": text, "ts": ts}
-            line = json.dumps(row) + "\n"
+            line = json.dumps(signing.seal(f"commands/{self.crew}", row)) + "\n"
             with open(self.log, "ab+") as f:
                 f.seek(0, os.SEEK_END)
                 if f.tell():
@@ -90,10 +103,5 @@ class CommandQueue:
     def ack(self, seq: int) -> None:
         """Acks seq and every command before it: commands apply in order, so acking the last one covers them."""
         with self._locked():
-            data = json.dumps(sorted(self._acked() | {r["seq"] for r in self._all() if r["seq"] <= seq} | {seq}))
-            fd, tmp = tempfile.mkstemp(dir=self.dir, prefix="commands.cursor.")
-            with os.fdopen(fd, "w") as f:
-                f.write(data)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, self.cursor)
+            acked = sorted(self._acked() | {r["seq"] for r in self._all() if r["seq"] <= seq} | {seq})
+            state.atomic_write(self.cursor, json.dumps(signing.seal(f"commands.cursor/{self.crew}", {"acked": acked})))

@@ -6,10 +6,10 @@ from pathlib import Path
 
 from board import sessions
 from cli.schedule import run_times
-from engine.lib import config, lessons, paths, runner, state
+from engine.lib import briefing, config, lessons, paths, runner, signing, state
 from engine.lib.redact import redact
 
-_TICKET_FIELDS = ("key", "title", "url", "stage", "prs", "branch", "fixRounds", "updatedAt")
+_TICKET_FIELDS = ("key", "title", "url", "stage", "prs", "branch", "fixRounds", "updatedAt", "tampered")
 
 
 def tick_running(crew_id: str) -> bool:
@@ -48,21 +48,23 @@ def crew_state(crew_id: str) -> dict:
         "paused": cfg["paused"],
         "gitFlow": {"type": cfg["gitFlow"]["type"]},
         "running": False, "building": None, "nextRun": next_run(cfg.get("schedule")),
-        "tickets": [], "questions": [], "runs": [], "lessons": [], "error": None,
+        "tickets": [], "questions": [], "runs": [], "lessons": [], "tampered": [], "error": None,
     }
     if not paths.crew_dir(crew_id).is_dir():
         return out
     out["running"] = tick_running(crew_id)
     out["building"] = runner.status(crew_id)
     tickets = state.list_tickets(crew_id)
-    out["tickets"] = [{k: t[k] for k in _TICKET_FIELDS} for t in tickets]
+    out["tickets"] = [{k: t.get(k, False) for k in _TICKET_FIELDS} for t in tickets]
+    out["tampered"] = [t["question"] for t in tickets if t.get("tampered")]
     out["questions"] = [{"key": t["key"], "title": t["title"], "question": t["question"]}
                         for t in tickets if t["stage"] == "needs_you"]
     out["runs"] = state.recent_runs(crew_id, 60)
     try:
         out["lessons"] = lessons.show(crew_id)
-    except lessons.LessonError:
-        pass
+    except lessons.LessonError as e:
+        if "tampered" in str(e):
+            out["tampered"].append(redact(str(e)))
     return out
 
 
@@ -79,8 +81,11 @@ def board_state() -> dict:
 
 
 def briefing_data(crew_id: str, key: str) -> dict | None:
+    path = paths.ticket_state_dir(crew_id, key) / "briefing.json"
     try:
-        d = json.loads((paths.ticket_state_dir(crew_id, key) / "briefing.json").read_text())
+        return signing.unseal(briefing.scope(crew_id, key), json.loads(path.read_text()), str(path))
+    except signing.Tampered:
+        state.report_tampered(crew_id, key, path)
     except (OSError, ValueError):
-        return None
-    return d if isinstance(d, dict) else None
+        pass
+    return None
