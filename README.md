@@ -1,11 +1,17 @@
-# Shopfloor
+<p align="center">
+  <img src="docs/assets/la-factoria.png" width="300" alt="A pixel-art factory at night: a colorful building with a smoking chimney, crew members in hard hats working at laptops behind the windows">
+</p>
 
-**Label a ticket. Get a pull request.**
+<h1 align="center">Shopfloor</h1>
 
-[![test](https://github.com/afvr94/shopfloor/actions/workflows/test.yml/badge.svg)](https://github.com/afvr94/shopfloor/actions/workflows/test.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
-![macOS and Linux](https://img.shields.io/badge/runs%20on-macOS%20%7C%20Linux-lightgrey.svg)
+<p align="center"><b>Label a ticket. Get a pull request.</b></p>
+
+<p align="center">
+  <a href="https://github.com/afvr94/shopfloor/actions/workflows/test.yml"><img src="https://github.com/afvr94/shopfloor/actions/workflows/test.yml/badge.svg" alt="test"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/runs%20on-macOS%20%7C%20Linux-lightgrey.svg" alt="macOS and Linux">
+</p>
 
 Shopfloor runs crews of [Claude Code](https://docs.claude.com/en/docs/claude-code) sessions on your own machine. Put the `shopfloor` label on a Linear ticket and a crew picks it up, plans it in a Slack thread, builds it in its own clone of your repo, opens a pull request and keeps it moving until it lands. You steer from the thread. Every pull request comes with a briefing page that explains the change to you, so you stay on top of code you didn't write.
 
@@ -27,15 +33,17 @@ flowchart LR
 
 ## What it feels like
 
-A made-up thread for a made-up ticket:
+<img src="docs/assets/foreman.png" width="170" align="right" alt="The foreman, a pixel-art crew boss with a white hard hat, a big mustache, a clipboard and a cup of coffee">
 
-> **Shopfloor** · ENG-42 *Add a CSV export to the reports page*
+Every crew has a voice. Name it whatever you like with `voice.name`; this one is **the Foreman**, who runs the floor. Here he is in a made-up thread for a made-up ticket:
+
+> **Foreman** · ENG-42 *Add a CSV export to the reports page*
 > Picked this up. Plan: a `GET /reports/:id/export.csv` endpoint next to the JSON one, reusing `ReportQuery`, plus a button on the report header. One question first: should the export respect the filters on screen, or always export everything? I'd recommend 1.
 > 1. Respect the filters 2. Export everything
 >
 > **You** · 1
 >
-> **Shopfloor** · Built and tested (14 new tests, all green). PR: github.com/acme/app/pull/318 · Briefing: 127.0.0.1:7420/briefing/demo/ENG-42
+> **Foreman** · Built and tested (14 new tests, all green). PR: github.com/acme/app/pull/318 · Briefing: 127.0.0.1:7420/briefing/demo/ENG-42
 
 Reply in the thread to answer, or send a command:
 
