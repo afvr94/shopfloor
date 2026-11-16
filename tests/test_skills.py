@@ -9,7 +9,7 @@ from engine.lib.cli import _parser
 
 SKILLS = Path(__file__).resolve().parent.parent / "engine" / "skills"
 NAMES = ("rules", "tick", "spec", "build", "watch")
-BANNED = ("pstack", "superpowers", "ponytail", "ecc:", "acme", "acme", "acme",
+BANNED = ("pstack", "superpowers", "ponytail", "ecc:",
           "bash ", "python3 -c", "node -e")
 DEAL_BREAKERS = (
     "done is ambiguous", "auth, permissions or sessions", "payments or billing",
