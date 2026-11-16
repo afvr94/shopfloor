@@ -17,6 +17,7 @@ from unittest import mock
 from cli import doctor
 from engine.adapters.chat import make_chat
 from engine.adapters.tracker import make_tracker
+from engine.hooks.guard import decide
 from engine.lib import config, paths, signing, state
 from engine.lib.proc import ProcError
 from engine.lib.proc import run as real_run
@@ -164,15 +165,19 @@ class Doctor(unittest.TestCase):
             def run(argv, cwd, **kw):
                 deny = json.loads(argv[-1])["sandbox"]["network"]["deniedDomains"]
                 self.assertTrue({"127.0.0.1", "[::ffff:127.0.0.1]", "[::ffff:7f00:1]", "[::]"} <= set(deny))
-                for form in ("[::ffff:127.0.0.1]", "[::ffff:7f00:1]", "CONNECT 2130706433:", "proxy=$HTTP_PROXY"):
-                    self.assertIn(form, argv[2])
+                self.assertTrue(Path(cwd).is_relative_to(paths.worktrees_dir("demo")))
+                command = re.search(r"`([^`]+)`", argv[2]).group(1)
+                self.assertIsNone(decide("Bash", {"command": command}, cwd, config.load_crew("demo")))
+                script = Path(cwd, "reach.py").read_text()
+                for form in ("[::ffff:127.0.0.1]", "[::ffff:7f00:1]", "CONNECT {target}", "2130706433:", "HTTP_PROXY"):
+                    self.assertIn(form, script)
                 Path(cwd, "reach.txt").write_text(f"proxy={proxy}\n" + f"rc={rc}\n" * 6)
                 return subprocess.CompletedProcess(argv, 0, "DONE", "")
             return run
 
         def leaky(argv, cwd, **kw):
-            url = re.search(r"http://127\.0\.0\.1:\d+/healthz", argv[2]).group(0)
-            urllib.request.urlopen(url, timeout=5).close()
+            port = re.search(r"PORT = (\d+)", Path(cwd, "reach.py").read_text()).group(1)
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=5).close()
             return ran("http://localhost:9", 0)(argv, cwd)
 
         for run, want in ((ran("http://localhost:9", 7), None), (leaky, "crews could reach the board"),

@@ -137,23 +137,64 @@ def live_smoke(cid: str) -> str | None:
     return None
 
 
+REACH_SCRIPT = """import os, socket
+
+PORT = %d
+PROXY = os.environ.get("HTTP_PROXY", "")
+
+
+def ask(host, port, request):
+    c = socket.create_connection((host, port), 5)
+    try:
+        c.sendall(request)
+        c.recv(4096)
+    finally:
+        c.close()
+
+
+def get(host):
+    return f"GET http://{host}:{PORT}/healthz HTTP/1.1\\r\\nHost: {host}:{PORT}\\r\\n\\r\\n".encode()
+
+
+def proxy():
+    host, port = PROXY.split("//")[-1].strip("/").rsplit(":", 1)
+    return host, int(port)
+
+
+def connect_decimal():
+    target = f"2130706433:{PORT}"
+    c = socket.create_connection(proxy(), 5)
+    try:
+        c.sendall(f"CONNECT {target} HTTP/1.1\\r\\nHost: {target}\\r\\n\\r\\n".encode())
+        c.recv(4096)
+        c.sendall(b"GET /healthz HTTP/1.1\\r\\nHost: x\\r\\n\\r\\n")
+        c.recv(4096)
+    finally:
+        c.close()
+
+
+tries = [lambda h=h: ask(h, PORT, get(h)) for h in ("127.0.0.1", "localhost")]
+tries += [lambda h=h: ask(*proxy(), get(h)) for h in ("127.0.0.1", "[::ffff:127.0.0.1]", "[::ffff:7f00:1]")]
+tries.append(connect_decimal)
+with open("reach.txt", "a") as out:
+    out.write(f"proxy={PROXY}\\n")
+    for attempt in tries:
+        try:
+            attempt()
+            rc = 0
+        except Exception:
+            rc = 1
+        out.write(f"rc={rc}\\n")
+"""
+REACH_ATTEMPTS = 6
+
+
 def _reach_probe(port: int) -> tuple[str, int]:
-    """The shell line a session runs, and how many attempts it makes. It records $HTTP_PROXY, then tries the
-    stand-in directly, through the proxy by name and by IPv4-mapped IPv6 spellings, and with a raw CONNECT to
-    the decimal form of 127.0.0.1, which a client's URL parser would otherwise normalize away."""
-    def url(host):
-        return f"http://{host}:{port}/healthz"
-    target = f"2130706433:{port}"
-    connect = ("python3 -c \"import os,socket;h,p=os.environ['HTTP_PROXY'].split('//')[-1].strip('/').rsplit(':',1);"
-               "c=socket.create_connection((h,int(p)),5);"
-               f"c.sendall(b'CONNECT {target} HTTP/1.1\\r\\nHost: {target}\\r\\n\\r\\n');c.recv(4096);"
-               "c.sendall(b'GET /healthz HTTP/1.1\\r\\nHost: x\\r\\n\\r\\n');c.recv(4096)\"")
-    tries = [f'curl -gs -m 5 -o /dev/null "{url(h)}"' for h in ("127.0.0.1", "localhost")]
-    tries += [f'curl -gs -m 5 -o /dev/null -x "$HTTP_PROXY" "{url(h)}"'
-              for h in ("127.0.0.1", "[::ffff:127.0.0.1]", "[::ffff:7f00:1]")]
-    tries.append(connect)
-    return 'echo "proxy=$HTTP_PROXY" >> reach.txt; ' + "; ".join(f"{t}; echo rc=$? >> reach.txt" for t in tries), \
-        len(tries)
+    """The script a session runs, and how many attempts it makes. It records $HTTP_PROXY, then tries the stand-in
+    directly, through the proxy by name and by IPv4-mapped IPv6 spellings, and with a raw CONNECT to the decimal
+    form of 127.0.0.1, which a client's URL parser would otherwise normalize away. It is a file in the crew's
+    worktrees, the only place the guard lets a crew run a program from, so the check reaches the sandbox."""
+    return REACH_SCRIPT % port, REACH_ATTEMPTS
 
 
 def board_reach(cid: str) -> str | None:
@@ -176,9 +217,11 @@ def board_reach(cid: str) -> str | None:
     probe, attempts = _reach_probe(port)
     argv, env = runner.claude_invocation(cid, (
         "This is a Shopfloor doctor check of the sandbox's network rules. Use the Bash tool once to run this "
-        f"exactly as written, then reply DONE: `{probe}`"))
+        "exactly as written, then reply DONE: `python3 reach.py`"))
     try:
-        with tempfile.TemporaryDirectory(prefix="shopfloor-reach-") as d:
+        with tempfile.TemporaryDirectory(prefix=".doctor-reach-", dir=paths.worktrees_dir(cid)) as d:
+            with open(os.path.join(d, "reach.py"), "x") as f:
+                f.write(probe)
             try:
                 r = subprocess.run(argv, env=env, cwd=d, stdin=subprocess.DEVNULL, capture_output=True, text=True,
                                    timeout=SMOKE_SECS)

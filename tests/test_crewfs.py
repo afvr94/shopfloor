@@ -296,7 +296,7 @@ ALLOWED = {
     ("board/listener.py", "_poll_crew"): "is_dir on <state>/<crew>; its cursor file there is the listener's",
     ("cli/doctor.py", "_crew_rows"): "is_dir on the write roots themselves, in sf's state dir; nothing inside them",
     ("cli/doctor.py", "live_smoke"): "a private temp dir for one smoke session; sf only checks a marker in it",
-    ("cli/doctor.py", "board_reach"): "a private temp dir for one probe session; doctor only reads its rc lines",
+    ("cli/doctor.py", "board_reach"): "a fresh dir in the worktrees for one probe session; doctor writes reach.py with O_EXCL, reads only rc lines",
 }
 
 
