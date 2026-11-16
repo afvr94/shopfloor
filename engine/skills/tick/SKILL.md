@@ -12,7 +12,7 @@ Unattended and repeatable: every step must be safe to run twice. Load `/shopfloo
    - `pause` runs `sf pause`.
    - `resume` runs `sf resume`. Never resume on your own initiative, only when an owner `resume` command is pending.
    - `lesson` runs `sf lessons add`; `forget` runs `sf lessons forget`.
-   - `answer` on a ticket in `needs_you` returns it to the stage it stopped at: set that stage with `sf ticket set`, and say so in the thread.
+   - `answer` on a ticket in `needs_you` returns it to the stage before `needs_you`: read `history` in `sf ticket show <KEY>`, take the stage entry just before the latest `needs_you`, set it with `sf ticket set <KEY> --stage <stage>`, and say so in the thread.
 2. `sf commands ack <seq>` after the last one you applied.
 3. `sf config` again: `paused` may have changed.
 
@@ -23,23 +23,23 @@ Run `/shopfloor:watch <KEY>` for every ticket in `in_review`, oldest first. Do t
 For every active ticket (`sf ticket list`), `sf tracker get <KEY>`. If the opt-in label is gone or a hold label is present, set the stage to `cancelled` with `sf ticket set`, post once in the thread saying you are standing down, and do not touch the ticket again.
 
 ## 4. Interrupted builds
-A ticket in stage `building` while `sf build status` says idle was cut off. Rebuild it once by queueing it for step 6. If `sf runs log` history for it already shows an interrupted or failed build, do not rebuild: `sf chat ask` with the last failure as the diagnosis (stage becomes `needs_you`), and log `stopped`.
+A ticket in stage `building` while `sf build status` says idle was cut off. Rebuild it once by adding it to this run's queue for step 6. If `history` in `sf ticket show <KEY>` already has two `building` entries, do not build a third time: `sf chat ask` with the last failure as the diagnosis (stage becomes `needs_you`), and log `stopped`.
 
 ## 5. New work (skip entirely when paused)
 1. `sf tracker candidates` returns eligible tickets. Take at most `limits.maxNewPerTick`, oldest first.
-2. Claim each one:
+2. Claim each one. Before writing any file, `sf ticket show <KEY>` and read `dir`, the absolute ticket folder; use it for every file below:
    1. `sf tracker transition <KEY> inProgress`
-   2. `sf tracker comment <KEY> --body-file <file>`: a short note that the crew has picked it up
+   2. `sf tracker comment <KEY> --body-file <dir>/<file>`: a short note that the crew has picked it up
    3. `sf chat open <KEY>`
    4. `sf ticket set <KEY> --stage claimed`
 3. Re-read with `sf tracker get <KEY>`. If someone else started work or a hold label appeared, back off as in step 3.
 4. Plan it:
-   - Clear and small (one repo, a handful of files, no deal breaker): write `tickets/<KEY>/plan.md` with the repo, the files you expect to touch, the approach and how you will check it. Then `sf ticket set <KEY> --stage planning` and queue it.
+   - Clear and small (one repo, a handful of files, no deal breaker): write `<dir>/plan.md` with the repo, the files you expect to touch, the approach and how you will check it. Then `sf ticket set <KEY> --stage planning` and add the key to this run's queue.
    - Anything else: run `/shopfloor:spec <KEY>`.
 5. Check the deal breakers from `/shopfloor:rules` while planning. If one applies, `sf chat ask` and stop on that ticket.
 
 ## 6. Hand off builds
-Queue at most `limits.maxParallel` tickets (rebuilds first, then new plans). If `sf build status` shows a runner already working, queue nothing new. Start them in one call: `sf build start <KEY> [<KEY> ...]`. The runner starts one `/shopfloor:build` session per ticket.
+"Queued" has no marker in the ticket state. Keep the list of keys you queued during this run (rebuilds first, then new plans), at most `limits.maxParallel`. If `sf build status` shows a runner already working, queue nothing new. Hand exactly that list over in one call: `sf build start <KEY> [<KEY> ...]`. The runner starts one `/shopfloor:build` session per ticket.
 
 ## 7. Close
 `sf runs log <KEY> <result> --note "<short note>"` for each ticket you moved, results like `claimed`, `queued`, `backed-off`, `stopped`. Nothing happened: end quietly.

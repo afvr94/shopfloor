@@ -8,7 +8,7 @@ description: Tends one Shopfloor ticket's open pull requests - fixes failing che
 Load `/shopfloor:rules` first. Input is a ticket key in stage `in_review`. Safe to run repeatedly.
 
 ## 1. Look
-`sf ticket show <KEY>` lists its PRs. For each, `gh pr view <url> --json state,statusCheckRollup,reviewDecision,comments,reviews`. Read-only `gh pr` and `gh run` commands are fine; anything that changes a PR goes through `sf`, except the replies in step 3.
+`sf ticket show <KEY>` lists its PRs and gives `dir`, the absolute ticket folder; write every draft file there and pass absolute paths. For each, `gh pr view <url> --json state,statusCheckRollup,reviewDecision,comments,reviews`. Read-only `gh pr` and `gh run` commands are fine; anything that changes a PR goes through `sf`, except the replies in step 3.
 
 ## 2. Failing checks
 1. Read the failing check's log (`gh run view <id> --log-failed`).
@@ -19,7 +19,7 @@ Load `/shopfloor:rules` first. Input is a ticket key in stage `in_review`. Safe 
 A failure that points at CI or deploy config, or at something unrelated to the change, is a deal breaker: ask, do not edit it.
 
 ## 3. Review comments
-For each new comment: make the fix and push, or answer with `gh pr comment <url> --body-file <file>`. Reply in the configured voice. A request that would trigger a deal breaker, or that grows the change well past the ticket, gets `sf chat ask`.
+For each new comment: make the fix and push, or answer with `gh pr comment <url> --body-file <dir>/<file>`. Reply in the configured voice. A request that would trigger a deal breaker, or that grows the change well past the ticket, gets `sf chat ask`.
 
 ## 4. Outcomes
 - Merged: `sf ticket set <KEY> --stage merged`, post a short note in the thread.

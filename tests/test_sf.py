@@ -195,6 +195,12 @@ class SfTest(unittest.TestCase):
         self.assertEqual((code, t["stage"], t["branch"], t["prs"]), (0, "building", "b", [{"repo": "app"}]))
         self.assertEqual(self.sf("ticket", "set", "ENG-1", "--field", "bogus=1")[0], 1)
 
+    def test_ticket_show_includes_absolute_dir(self):
+        code, out, _ = self.sf("ticket", "show", "ENG-1")
+        d = Path(json.loads(out)["dir"])
+        self.assertEqual((code, d, d.is_dir()), (0, paths.ticket_dir("demo", "ENG-1"), True))
+        self.assertTrue(d.is_absolute())
+
     def test_pause_and_resume_rewrite_config(self):
         self.sf("pause")
         self.assertTrue(json.loads(paths.crew_config_path("demo").read_text())["paused"])

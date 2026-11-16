@@ -22,6 +22,16 @@ def _texts() -> dict[str, str]:
     return {n: (SKILLS / n / "SKILL.md").read_text() for n in NAMES}
 
 
+def _flags() -> dict[tuple[str, str], set[str]]:
+    top = next(a for a in _parser()._actions if isinstance(a, argparse._SubParsersAction))
+    out = {}
+    for name, sp in top.choices.items():
+        subs = next((a for a in sp._actions if isinstance(a, argparse._SubParsersAction)), None)
+        for sub, p in (subs.choices.items() if subs else [("", sp)]):
+            out[(name, sub)] = {o for a in p._actions for o in a.option_strings}
+    return out
+
+
 def _commands() -> dict[str, set[str]]:
     top = next(a for a in _parser()._actions if isinstance(a, argparse._SubParsersAction))
     out = {}
@@ -48,6 +58,19 @@ class Skills(unittest.TestCase):
                 if cmds[a] and b:
                     self.assertIn(b, cmds[a], f"{n}: sf {a} {b}")
         self.assertGreater(seen, 20)
+
+    def test_every_sf_flag_exists(self):
+        flags = _flags()
+        for n, t in _texts().items():
+            for span in re.findall(r"`(sf [^`]+)`", t):
+                words = span.split()[1:]
+                for key in ((words[0], words[1] if len(words) > 1 else ""), (words[0], "")):
+                    if key in flags:
+                        break
+                else:
+                    continue
+                for f in re.findall(r"--[a-z-]+", span):
+                    self.assertIn(f, flags[key], f"{n}: {span}")
 
     def test_no_third_party_plugins_or_blocked_commands(self):
         for n, t in _texts().items():

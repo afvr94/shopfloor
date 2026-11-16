@@ -8,7 +8,7 @@ description: Builds one Shopfloor ticket from its plan or spec in an isolated wo
 Load `/shopfloor:rules` first. Input is a ticket key. Work only in the ticket's worktree.
 
 ## 1. Prepare
-1. `sf ticket show <KEY>` for the stage, repo and any existing branch. Read `tickets/<KEY>/plan.md` or `spec.md`.
+1. `sf ticket show <KEY>` for the stage, repo, any existing branch and `dir`, the absolute ticket folder. Build every ticket-file path below from `dir`. Read `<dir>/plan.md` or `<dir>/spec.md`.
 2. `sf worktree prepare <KEY> <repo>` prints the worktree path. A rebuild reuses leftover work: check `git status` and the existing commits first, and finish what is there.
 3. `sf ticket set <KEY> --stage building`.
 
@@ -22,11 +22,11 @@ Load `/shopfloor:rules` first. Input is a ticket key. Work only in the ticket's 
 Small commits on your branch with Conventional Commit messages that carry the ticket key as scope, for example `feat(ENG-12): add rate limit`. Use `git commit -m` or `-F`. No attribution or sign-off lines of any kind. Then `git fetch` and `git rebase origin/<base>`.
 
 ## 4. Ship
-1. Write the PR body to `tickets/<KEY>/pr-body.md`: what changed and why, how it was checked. No ticket text beyond the title, no secrets.
-2. `sf ship <KEY> <repo> --title "<type>(<KEY>): <summary>" --body-file tickets/<KEY>/pr-body.md`. It pushes your `shopfloor/*` branch and opens the PR. Never push or open a PR any other way.
+1. Write the PR body to `<dir>/pr-body.md`: what changed and why, how it was checked. No ticket text beyond the title, no secrets.
+2. `sf ship <KEY> <repo> --title "<type>(<KEY>): <summary>" --body-file <dir>/pr-body.md`. It pushes your `shopfloor/*` branch and opens the PR. Never push or open a PR any other way.
 
 ## 5. Briefing
-The owner did not write this code and needs to understand it fast. Write `tickets/<KEY>/briefing.json` from the final diff and the code around it:
+The owner did not write this code and needs to understand it fast. Write `<dir>/briefing.json` from the final diff and the code around it:
 - `title`, `whatWhy` (what changed and why, the root cause if it was a bug), `risk`
 - `how`: steps of how the changed path works now
 - `verify`: how to check it
@@ -35,12 +35,12 @@ The owner did not write this code and needs to understand it fast. Write `ticket
 - `diagram`: a Mermaid diagram of the changed path
 - `size`: `small` or `full`
 
-Title only from the ticket, no secrets, no personal data. Never put the briefing in the PR description. Then `sf briefing write <KEY> tickets/<KEY>/briefing.json` and `sf briefing url <KEY>`.
+Title only from the ticket, no secrets, no personal data. Never put the briefing in the PR description. Then `sf briefing write <KEY> <dir>/briefing.json` and `sf briefing url <KEY>`.
 
 ## 6. Hand over
 1. `sf tracker transition <KEY> review`
 2. `sf tracker link-pr <KEY> <pr-url>`
-3. `sf chat post <KEY> --text-file <file>` with the PR link and the briefing link.
+3. `sf chat post <KEY> --text-file <dir>/<file>` with the PR link and the briefing link.
 4. `sf ticket set <KEY> --stage in_review`
 
 ## Dry run

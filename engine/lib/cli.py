@@ -150,7 +150,9 @@ def h_ticket_list(a, cfg):
 
 
 def h_ticket_show(a, cfg):
-    _out(state.load_ticket(cfg["id"], a.key))
+    d = paths.ticket_dir(cfg["id"], a.key)
+    d.mkdir(parents=True, exist_ok=True)
+    _out({**state.load_ticket(cfg["id"], a.key), "dir": str(d)})
 
 
 def h_ticket_set(a, cfg):
