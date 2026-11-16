@@ -189,7 +189,7 @@ def abbreviates(name: str, options) -> bool:
     return len(name) > 3 and any(o.startswith(name) for o in options)
 
 
-NPX_TOOLS = {"tsc", "eslint", "prettier", "jest", "vitest"}
+NPX_TOOLS = {"tsc", "eslint", "prettier", "jest", "vitest", "playwright"}
 RUNNER_SUBCOMMANDS = {"npm": {"exec", "x", "explore", "edit"}, "pnpm": {"exec", "dlx", "x"}, "yarn": {"dlx", "exec"},
                       "bun": {"x"}, "uv": {"run", "tool"}, "poetry": {"run", "shell"}, "bundle": {"exec"}}
 MAKE_DENY_LONG = {"--file", "--makefile", "--eval", "--directory", "--include-dir", "--environment-overrides"}
@@ -197,7 +197,6 @@ PY_MODULES = {"pytest", "unittest", "pip", "black", "ruff", "mypy", "json.tool",
 PIP_DENY = {"--target", "--prefix", "--root", "--user", "--src", "--editable"}
 # tools that rewrite, or emit output next to, the paths they are given
 IN_PLACE = {"prettier", "eslint", "black", "ruff", "tsc"}
-TEST_RUNNERS = {"pytest", "jest", "vitest"}
 # options whose value names code or config a tool loads (matched case-insensitively, abbreviations included)
 CODE_LONG = {"--config", "--config-file", "--rootdir", "--root", "--dir", "--setupfiles", "--setupfilesafterenv",
              "--globalsetup", "--globalteardown", "--project", "--projects", "--rulesdir",
@@ -211,6 +210,14 @@ CODE_SHORT = {"jest": "c", "vitest": "cr", "eslint": "c", "tsc": "p", "pytest": 
 INLINE_SHORT = {"node": "ep", "nodejs": "ep", "ruby": "e", "php": "rRBEF", "bun": "ep", "deno": ""}
 INLINE_LONG = {"--eval", "--eval-file", "--print"}
 PY_VALUE = set("WX")
+# pure-output options: their value may also point into a temp dir; every other toolchain path stays in the worktree
+OUTPUT_OPTS = {"--junitxml", "--junit-xml", "--cov-report", "--basetemp", "-o", "--output", "--out-dir", "--outdir"}
+SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:(?!:)")  # data:, file:, https:, git+ssh: ... (not pytest's a.py::t)
+SCHEME_OK = {("pytest", "-p")}  # -p no:cacheprovider names a plugin
+# options that run a program or inline code: go -exec/-toolexec/-overlay, rake -e/-p/-E
+EXEC_SHORT = {"rake": "epE"}
+EXEC_LONG = {"go": {"-exec", "-toolexec", "-overlay"},
+             "rake": {"--eval", "--execute", "--execute-print", "--execute-continue"}}
 CURL_OUT = {"-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar", "--trace", "--trace-ascii", "--stderr",
             "--output-dir"}
 WGET_OUT = {"-O", "--output-document", "-o", "--output-file", "-a", "--append-output", "-P", "--directory-prefix"}
@@ -300,18 +307,49 @@ def toolchain(exe: str, words: list, write, code) -> None:
         make(args)
     if exe in ("pip", "pip3"):
         pip(args)
-    for v in option_values(args):
-        write(v)
-    for a in args:
-        if a.startswith("-o") and not a.startswith("--") and len(a) > 2:
-            write(a[2:])
+    exec_options(exe, args)
+    toolchain_paths(exe, args, write, code)
     for v in code_values(exe, args):
         code(v)
     for p in pos:
-        if exe in TEST_RUNNERS:
-            code(p)
         if exe in IN_PLACE and p not in ("check", "format"):
             write(p)
+
+
+def exec_options(exe: str, args: list) -> None:
+    for a in args:
+        name = a.partition("=")[0]
+        if name in EXEC_LONG.get(exe, ()) or a.startswith("--") and abbreviates(name, EXEC_LONG.get(exe, ())) or \
+                short_chars(a) & set(EXEC_SHORT.get(exe, "")):
+            block(f"{exe} {name} runs a program or inline code the guard can't check")
+
+
+def toolchain_paths(exe: str, args: list, write, code) -> None:
+    """Every path a toolchain is given stays in the worktree; pure-output options may also use a temp dir.
+    URL-like values (data:, file:, https:, git+...) block."""
+    k = 0
+    while k < len(args):
+        a, prev = args[k], args[k - 1] if k else ""
+        k += 1
+        name, eq, val = a.partition("=")
+        if a.startswith("-") and name.lower() in OUTPUT_OPTS:
+            if not eq:
+                val, k = (args[k] if k < len(args) else ""), k + 1
+            out = val.partition(":")[2] if name.lower() == "--cov-report" else val
+            for v in (out, out.partition("=")[2]):
+                write(v)
+            continue
+        if a.startswith("-o") and not a.startswith("--") and len(a) > 2:
+            write(a[2:])
+            continue
+        vals = [val] if a.startswith("-") and eq else [] if a.startswith("-") else [a]
+        if a.startswith("-") and not a.startswith("--") and not eq and len(a) > 2:
+            vals.append(a[2:])  # -f/tmp/x: a glued value
+        for v in vals + [v.partition("=")[2] for v in vals if "=" in v]:
+            if SCHEME.match(v) and (exe, prev) not in SCHEME_OK:
+                block(f"{exe} may not load {v.partition(':')[0]}: URLs; use files in the worktree")
+            if looks_like_path(v):
+                code(v)
 
 
 def make(args: list) -> None:
@@ -382,10 +420,11 @@ def interpreter(exe: str, args: list, write, code) -> None:
         if short_chars(a) & inline or a.startswith("--") and abbreviates(a.partition("=")[0], INLINE_LONG):
             block("inline interpreter code can't be checked; put it in a file in the worktree")
     pos = [a for a in args if not a.startswith("-")]
-    if exe in ("deno", "bun") and any(re.match(r"[a-z]+:", p) for p in pos):
-        block(f"{exe} may only run files from the worktree, not URLs or packages")
     # the grammar of these interpreters is large: every path-like word must be worktree code
     words = [a for a in args if not a.startswith("-")] + option_values(args) + code_values(exe, args) + \
         [a[2:] for a in args if a.startswith("-") and not a.startswith("--")]
+    for w in words:
+        if SCHEME.match(w):
+            block(f"{exe} may not load {w.partition(':')[0]}: URLs; use files in the worktree")
     for p in pos[:1] + [w for w in words if looks_like_path(w)]:
         code(p)

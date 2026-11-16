@@ -345,8 +345,6 @@ class Guard:
         if exe == "ruby" and any(re.fullmatch(r"-[A-Za-z]*i.*", a) for a in args):
             block("ruby -i edits files the guard can't check; use the Edit tool")
         pos = [a for a in args if not a.startswith("-")]
-        if pos and os.path.basename(pos[0]) == "sf":
-            return self.sf(words[words.index(pos[0]):])
         interpreter(exe, args, lambda p: self.write(p, cwd), lambda p: self.code(p, cwd))
         flags = {"--version", "--help", "-V", "-h"}
         if not pos and not any(a in flags or re.fullmatch(r"-[A-Za-z]*m.*", a) for a in args):
