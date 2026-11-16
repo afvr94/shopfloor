@@ -88,6 +88,35 @@ class TestPrepare(WorktreeCase):
         (patch,) = paths.ticket_dir("crew", "ABC-1").glob("salvage-app-*.patch")
         self.assertIn("precious", patch.read_text())
 
+    def test_prepare_makes_a_full_clone_pointing_at_the_real_origin(self):
+        d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
+        self.assertTrue((d / ".git").is_dir())
+        self.assertEqual(git(d, "remote", "get-url", "origin"), str(self.origin))
+        self.assertNotIn(str(d), git(self.clone, "worktree", "list"))
+        self.assertEqual(git(d, "rev-parse", "HEAD"), git(self.clone, "rev-parse", "origin/main"))
+
+    def test_prepare_carries_unpushed_branch_checked_out_in_main(self):
+        git(self.clone, "checkout", "-b", "shopfloor/abc-1-x")
+        commit_file(self.clone, "local.txt", "unpushed\n")
+        d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
+        self.assertEqual((d / "local.txt").read_text(), "unpushed\n")
+
+    def test_prepare_keeps_clone_with_unpushed_commits_on_wrong_branch(self):
+        d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/old")
+        commit_file(d, "mine.txt", "only here\n")
+        worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
+        asides = [p for p in paths.ticket_dir("crew", "ABC-1").glob("salvage-app-*") if p.is_dir()]
+        self.assertEqual(len(asides), 1)
+        self.assertEqual((asides[0] / "mine.txt").read_text(), "only here\n")
+
+    def test_prepare_replaces_old_git_worktree_layout(self):
+        d = self.wt()
+        d.parent.mkdir(parents=True)
+        git(self.clone, "worktree", "add", "-b", "shopfloor/abc-1-x", str(d), "origin/main")
+        out = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
+        self.assertTrue((out / ".git").is_dir())
+        self.assertNotIn(str(d), git(self.clone, "worktree", "list"))
+
     def test_remove(self):
         d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
         worktrees.remove(self.cfg, "ABC-1")

@@ -3,12 +3,14 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 
 from engine.lib import state
 from engine.lib.proc import ProcError, run
 
+SHIP_BRANCH = re.compile(r"shopfloor/[A-Za-z0-9._/-]+")
 GREEN = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 
 
@@ -49,8 +51,10 @@ class GitFlow:
     def ship(self, key: str, repo_name: str, worktree: Path, title: str, body: str) -> str:
         repo = self.cfg["repos"][repo_name]
         branch = run(["git", "-C", str(worktree), "symbolic-ref", "--short", "HEAD"]).strip()
-        if branch == repo["base"] or branch in self.cfg.get("protectedBranches", []):
-            raise GitFlowError(f"refusing to push protected branch {branch}")
+        bases = {r["base"] for r in self.cfg["repos"].values()}
+        if not SHIP_BRANCH.fullmatch(branch) or ".." in branch or branch in bases or \
+                branch == self.flow.get("testBranch") or branch in self.cfg.get("protectedBranches", []):
+            raise GitFlowError(f"refusing to push {branch}; only shopfloor/* ticket branches ship")
         run(["git", "-C", str(worktree), "push", "-u", "origin", branch])
         try:
             found = json.loads(GH(["pr", "list", "-R", repo["github"], "--head", branch,

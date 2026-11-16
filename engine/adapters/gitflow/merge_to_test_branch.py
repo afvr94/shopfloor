@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from engine.lib import paths
+from engine.lib import paths, worktrees
 from engine.lib.proc import ProcError, run
 
 from . import base
@@ -28,11 +28,10 @@ class MergeToTestBranch(GitFlow):
             return run(["git", "-C", str(wt), *a]).strip()
 
         try:
-            run(["git", "-C", main, "fetch", "origin"])
-            if not wt.exists():
-                run(["git", "-C", main, "worktree", "prune"])
-                wt.parent.mkdir(parents=True, exist_ok=True)
-                run(["git", "-C", main, "worktree", "add", "--detach", str(wt), f"origin/{test}"])
+            if not worktrees.is_clone(wt, main):
+                worktrees.drop(wt, main)
+                worktrees.clone(main, wt)
+            g("fetch", "--prune", "origin")
             g("checkout", "-f", "-B", test, f"origin/{test}")
             try:
                 g("merge", "--no-ff", oid, "-m", f"Merge {head} into {test} ({key})")

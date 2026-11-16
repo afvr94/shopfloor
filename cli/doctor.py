@@ -3,18 +3,22 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import shutil
+import subprocess
 import sys
+import tempfile
 import urllib.request
 from urllib.parse import quote
 
 from engine.adapters.chat import make_chat
 from engine.adapters.tracker import make_tracker
 from engine.hooks.guard import decide
-from engine.lib import config, paths, proc
+from engine.lib import config, paths, proc, runner, state
 from engine.lib.redact import redact
 
 Row = tuple[bool, str, str]
+SMOKE_SECS = 300
 SANDBOX_HINT = {
     "darwin": (["sandbox-exec"], "sandbox-exec ships with macOS; check /usr/bin is on PATH"),
     "linux": (["bwrap", "socat"], "install them, e.g. apt install bubblewrap socat"),
@@ -78,7 +82,28 @@ def _repo_rows(cid: str, cfg: dict, deps: dict) -> list[Row]:
     return rows
 
 
-def _crew_rows(cid: str, deps: dict) -> list[Row]:
+def live_smoke(cid: str) -> str | None:
+    """One real sandboxed crew session in a temp dir: a sandboxed write there and an sf write outside it."""
+    nonce = secrets.token_hex(4)
+    argv, env = runner.claude_invocation(cid, (
+        "This is a Shopfloor doctor check. Use the Bash tool to run these two commands, one Bash call each, "
+        f"exactly as written, then reply DONE: `touch smoke-ok` and `sf runs log SMOKE-1 smoke-{nonce}`"))
+    with tempfile.TemporaryDirectory(prefix="shopfloor-smoke-") as d:
+        try:
+            r = subprocess.run(argv, env=env, cwd=d, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                               timeout=SMOKE_SECS)
+        except subprocess.TimeoutExpired:
+            return f"claude did not finish within {SMOKE_SECS}s"
+        if r.returncode != 0:
+            return f"claude exited {r.returncode}: {(r.stderr or r.stdout).strip()[-300:]}"
+        if not os.path.exists(os.path.join(d, "smoke-ok")):
+            return "the sandboxed write in the session's temp dir did not happen"
+    if not any(x.get("result") == f"smoke-{nonce}" for x in state.recent_runs(cid)):
+        return "sf could not write crew state from inside the session (is sf excluded from the sandbox?)"
+    return None
+
+
+def _crew_rows(cid: str, deps: dict, live: bool = False) -> list[Row]:
     try:
         cfg = config.load_crew(cid)
     except config.ConfigError as e:
@@ -91,15 +116,21 @@ def _crew_rows(cid: str, deps: dict) -> list[Row]:
     rows.append(_guarded(f"{cid}: slack auth", lambda: chat.auth_test() and None))
     rows.append(_guarded(f"{cid}: slack channel", chat.channel_check))
     rows += _repo_rows(cid, cfg, deps)
+    live_cfg = {**cfg, "dryRun": False}  # dry run blocks every push; test the protected-branch rule itself
     rows.append(_guarded(f"{cid}: guard self-test", lambda: None if decide(
-        "Bash", {"command": "git push origin main"}, str(paths.shopfloor_home()), cfg) else "git push origin main was allowed"))
+        "Bash", {"command": "git push origin main"}, str(paths.shopfloor_home()), live_cfg)
+        else "git push origin main was allowed"))
     missing = [d for d in ("worktrees", "tickets") if not (paths.crew_dir(cid) / d).is_dir()]
     rows.append((not missing, f"{cid}: crew dirs", f"missing {', '.join(missing)} (run shopfloor install)" if missing else ""))
+    if live:
+        rows.append(_guarded(f"{cid}: live sandbox session", lambda: deps["smoke"](cid)))
     return rows
 
 
-def check_all(crew_id: str | None, deps: dict | None = None, during_init: bool = False) -> list[Row]:
-    d = {"which": shutil.which, "run": proc.run, "tracker": make_tracker, "chat": make_chat, "health": _health}
+def check_all(crew_id: str | None, deps: dict | None = None, during_init: bool = False,
+              live: bool = False) -> list[Row]:
+    d = {"which": shutil.which, "run": proc.run, "tracker": make_tracker, "chat": make_chat, "health": _health,
+         "smoke": live_smoke}
     d.update(deps or {})
     which = d["which"]
     rows: list[Row] = [
@@ -118,7 +149,7 @@ def check_all(crew_id: str | None, deps: dict | None = None, during_init: bool =
     except config.ConfigError as e:
         return rows + [(False, "board config", redact(str(e)))]
     for cid in crews:
-        rows += _crew_rows(cid, d)
+        rows += _crew_rows(cid, d, live)
     url = f"http://127.0.0.1:{board['port']}/healthz"
     up = d["health"](url)
     rows.append((up or during_init, "board", "" if up else f"not answering at {url}" + (" (warning)" if during_init else "")))

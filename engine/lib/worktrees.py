@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime
-import os
 import re
 import shutil
 from pathlib import Path
@@ -22,23 +21,31 @@ def _git(path, *args, check=True) -> str:
     return run(["git", "-C", str(path), *args], check=check).strip()
 
 
-def _common_dir(path) -> str:
-    out = _git(path, "rev-parse", "--git-common-dir", check=False)
-    return os.path.realpath(os.path.join(str(path), out)) if out else ""
+def clone(main: str, dest: Path) -> None:
+    """A full local clone of the main checkout whose origin is the real remote, so its .git sits inside dest."""
+    url = _git(main, "remote", "get-url", "origin")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    run(["git", "clone", "--quiet", "--no-checkout", str(main), str(dest)])
+    _git(dest, "remote", "set-url", "origin", url)
+    _git(dest, "fetch", "--prune", "origin")
+
+
+def is_clone(d: Path, main: str) -> bool:
+    return (d / ".git").is_dir() and \
+        _git(d, "remote", "get-url", "origin", check=False) == _git(main, "remote", "get-url", "origin", check=False)
 
 
 def _healthy(wt: Path, repo_path: str, branch: str) -> bool:
-    if not (wt / ".git").exists() or _common_dir(wt) != _common_dir(repo_path):
-        return False
-    return _git(wt, "symbolic-ref", "--short", "-q", "HEAD", check=False) == branch
+    return is_clone(wt, repo_path) and _git(wt, "symbolic-ref", "--short", "-q", "HEAD", check=False) == branch
 
 
-def _drop(wt: Path, repo_path: str) -> None:
-    try:
-        _git(repo_path, "worktree", "remove", "--force", str(wt))
-    except ProcError:
-        shutil.rmtree(wt, ignore_errors=True)
-    _git(repo_path, "worktree", "prune", check=False)
+def drop(wt: Path, main: str) -> None:
+    shutil.rmtree(wt, ignore_errors=True)
+    _git(main, "worktree", "prune", check=False)  # leftovers from the git-worktree layout
+
+
+def _unpushed(wt: Path) -> bool:
+    return bool(_git(wt, "rev-list", "-n1", "--branches", "--not", "--remotes=origin", check=False))
 
 
 def _stamp() -> str:
@@ -72,28 +79,34 @@ def prepare(cfg: dict, key: str, repo_name: str, branch: str) -> Path:
     _git(main, "fetch", "origin")
     if wt.exists():
         if _healthy(wt, main, branch):
+            _git(wt, "fetch", "--prune", "origin")
             return wt
         if (wt / ".git").exists():
             _salvage(wt, cfg["id"], key, repo_name)
-            _drop(wt, main)
+            if _unpushed(wt):  # local commits live only in this clone: keep the whole directory
+                _move_aside(wt, cfg["id"], key, repo_name)
+            else:
+                drop(wt, main)
         else:
             _move_aside(wt, cfg["id"], key, repo_name)
-    _git(main, "worktree", "prune", check=False)
-    wt.parent.mkdir(parents=True, exist_ok=True)
 
-    def has(ref: str) -> bool:
-        return bool(_git(main, "rev-parse", "--verify", "-q", ref, check=False))
+    def has(ref: str, where=main) -> bool:
+        return bool(_git(where, "rev-parse", "--verify", "-q", ref, check=False))
 
-    if has(f"refs/heads/{branch}") and (
+    local = has(f"refs/heads/{branch}") and (
         not has(f"refs/remotes/origin/{branch}")
-        or _git(main, "rev-list", f"origin/{branch}..{branch}", check=False)
-    ):
-        # unpushed commits: attach to the local branch rather than reset it
-        _git(main, "worktree", "add", str(wt), branch)
-    elif has(f"refs/remotes/origin/{branch}"):
-        _git(main, "worktree", "add", "-B", branch, str(wt), f"origin/{branch}")
+        or bool(_git(main, "rev-list", f"origin/{branch}..{branch}", check=False)))
+    clone(main, wt)
+    if local:
+        # unpushed commits in the main checkout: carry the local branch over rather than reset it
+        _git(wt, "fetch", "--quiet", "--update-head-ok", str(main), f"refs/heads/{branch}:refs/heads/{branch}")
+        _git(wt, "checkout", "--quiet", branch)
+        if has(f"refs/remotes/origin/{branch}", wt):
+            _git(wt, "branch", "--quiet", "--set-upstream-to", f"origin/{branch}")
+    elif has(f"refs/remotes/origin/{branch}", wt):
+        _git(wt, "checkout", "--quiet", "-B", branch, f"origin/{branch}")
     else:
-        _git(main, "worktree", "add", "-b", branch, str(wt), f"origin/{repo['base']}")
+        _git(wt, "checkout", "--quiet", "--no-track", "-b", branch, f"origin/{repo['base']}")
     return wt
 
 
@@ -101,8 +114,5 @@ def remove(cfg: dict, key: str) -> None:
     paths.ticket_dir(cfg["id"], key)
     root = paths.worktrees_dir(cfg["id"]) / key
     for name, repo in cfg["repos"].items():
-        wt = root / name
-        if wt.exists():
-            _drop(wt, repo["path"])
-        _git(repo["path"], "worktree", "prune", check=False)
+        drop(root / name, repo["path"])
     shutil.rmtree(root, ignore_errors=True)

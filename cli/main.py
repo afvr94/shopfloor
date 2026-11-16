@@ -93,6 +93,8 @@ def _parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
     for name in ("doctor", "install", "status"):
         sub.add_parser(name).add_argument("crew", nargs="?")
+    sub.choices["doctor"].add_argument("--live", action="store_true",
+                                       help="also run one real sandboxed claude session (uses your Claude plan)")
     sub.add_parser("run").add_argument("crew")
     for name in ("init", "uninstall", "board"):
         sub.add_parser(name)
@@ -108,7 +110,7 @@ def main(argv: list[str]) -> int:
         if args.cmd == "init":
             return init.run_wizard()
         if args.cmd == "doctor":
-            return doctor.report(doctor.check_all(args.crew))
+            return doctor.report(doctor.check_all(args.crew, live=args.live))
         if args.cmd == "install":
             return _install(args.crew)
         if args.cmd == "uninstall":

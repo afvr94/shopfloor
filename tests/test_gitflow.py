@@ -112,6 +112,19 @@ class TestShip(GitFlowCase):
                 self.pf.ship("ABC-2", "app", d, "T", "b")
         self.assertEqual(self.gh.calls, [])
 
+    def test_ship_refuses_non_ticket_branches(self):
+        d = worktrees.prepare(self.cfg, "ABC-2", "app", "shopfloor/abc-2-x")
+        for b in ("feature/x", "shopfloor", "shopfloor/", "shopfloor/a..b", "shopfloor/a b", "xshopfloor/a"):
+            calls = []
+
+            def fake(argv, b=b, **k):
+                calls.append(argv)
+                return b + "\n"
+            with mock.patch.object(base, "run", side_effect=fake), self.assertRaises(base.GitFlowError):
+                self.pf.ship("ABC-2", "app", d, "T", "b")
+            self.assertFalse([c for c in calls if "push" in c], b)
+        self.assertEqual(self.gh.calls, [])
+
 
 class TestPrOnly(GitFlowCase):
     def test_pr_only_never_merges(self):
@@ -188,7 +201,7 @@ class TestMergeToTest(GitFlowCase):
         out = self.pf.merge("ABC-1", "app", self.pr())
         self.assertRegex(out, r"^merged shopfloor/abc-1-x into staging at [0-9a-f]{7}$")
         self.assertEqual(len(git(self.origin, "rev-list", "--parents", "-n1", "staging").split()), 3)
-        self.assertTrue((paths.worktrees_dir("crew") / "_test" / "app").is_dir())
+        self.assertTrue((paths.worktrees_dir("crew") / "_test" / "app" / ".git").is_dir())
         self.assertEqual(self.gh.calls, [])
 
     def test_merge_to_test_branch_conflict_aborts(self):

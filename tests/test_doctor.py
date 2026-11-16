@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -14,7 +15,7 @@ from unittest import mock
 from cli import doctor
 from engine.adapters.chat import make_chat
 from engine.adapters.tracker import make_tracker
-from engine.lib import paths
+from engine.lib import paths, state
 from engine.lib.proc import ProcError
 from engine.lib.proc import run as real_run
 from tests.fakes import FakeLinear, FakeSlack
@@ -110,6 +111,35 @@ class Doctor(unittest.TestCase):
 
     def failing(self, rows):
         return [name for ok, name, _ in rows if not ok]
+
+    def test_live_smoke_runs_only_with_live(self):
+        calls = []
+        d = {**self.deps(), "smoke": lambda cid: calls.append(cid) or "claude exited 1: no sandbox"}
+        self.assertNotIn("live", " ".join(n for _, n, _ in doctor.check_all("demo", d)))
+        self.assertEqual(calls, [])
+        rows = doctor.check_all("demo", d, live=True)
+        self.assertEqual(calls, ["demo"])
+        self.assertEqual(self.failing(rows), ["demo: live sandbox session"])
+
+    def test_live_smoke_checks_sandboxed_write_and_sf_write(self):
+        def fake_run(argv, cwd, **kw):
+            nonce = re.search(r"smoke-([0-9a-f]+)`", argv[2]).group(1)
+            self.assertIn("--setting-sources", argv)
+            Path(cwd, "smoke-ok").touch()
+            state.log_run("demo", "SMOKE-1", f"smoke-{nonce}")
+            return subprocess.CompletedProcess(argv, 0, "DONE", "")
+        with mock.patch.object(doctor.subprocess, "run", fake_run):
+            self.assertIsNone(doctor.live_smoke("demo"))
+        with mock.patch.object(doctor.subprocess, "run",
+                               lambda argv, cwd, **kw: subprocess.CompletedProcess(argv, 0, "DONE", "")):
+            self.assertIn("sandboxed write", doctor.live_smoke("demo"))
+
+    def test_guard_self_test_checks_protected_branch_even_in_dry_run(self):
+        seen = []
+        real = doctor.decide
+        with mock.patch.object(doctor, "decide", lambda *a: seen.append(a[3]) or real(*a)):
+            self.rows()
+        self.assertEqual([c["dryRun"] for c in seen], [False])
 
     def test_all_green_with_fakes(self):
         rows = self.rows()
