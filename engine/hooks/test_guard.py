@@ -33,11 +33,11 @@ ROWS = [
     ("push to testBranch outside test flow", BASH, "git push origin staging",
      {"gitFlow": {"type": "pr-only", "testBranch": "staging"}}, "wt", True),
     ("push to testBranch in test flow", BASH, "git push origin staging", TEST_FLOW, "wt", True),
-    ("push feature branch", BASH, "git push -u origin shopfloor/eng-1-x", {}, "wt", False),
-    ("push feature HEAD", BASH, "git push origin HEAD", {}, "wt", False),
-    ("push no refspec on feature", BASH, "git push", {}, "wt", False),
-    ("force push feature", BASH, "git push --force-with-lease origin shopfloor/eng-1-x", {}, "wt", False),
-    ("push feature with stderr redirect", BASH, "git push origin HEAD 2>&1", {}, "wt", False),
+    ("push feature branch", BASH, "git push -u origin shopfloor/eng-1-x", {}, "wt", True),
+    ("push feature HEAD", BASH, "git push origin HEAD", {}, "wt", True),
+    ("push no refspec on feature", BASH, "git push", {}, "wt", True),
+    ("force push feature", BASH, "git push --force-with-lease origin shopfloor/eng-1-x", {}, "wt", True),
+    ("push feature with stderr redirect", BASH, "git push origin HEAD 2>&1", {}, "wt", True),
     ("push dynamic refspec", BASH, "git push origin $BRANCH", {}, "wt", True),
     ("push after checkout", BASH, "git checkout main && git push", {}, "wt", True),
     # dry run
@@ -52,23 +52,23 @@ ROWS = [
     ("push --tags", BASH, "git push --tags origin", {}, "wt", True),
     # git -C and cd
     ("git -C main push", BASH, "git -C %MAIN% push", {}, "wt", True),
-    ("git -C feature push", BASH, "git -C %WT% push", {}, "main", False),
+    ("git -C feature push", BASH, "git -C %WT% push", {}, "main", True),
     ("cd main && git push", BASH, "cd %MAIN% && git push", {}, "wt", True),
-    ("cd feature && git push", BASH, "cd %WT% && git push", {}, "main", False),
+    ("cd feature && git push", BASH, "cd %WT% && git push", {}, "main", True),
     ("subshell cd does not leak", BASH, "(cd %WT%) && git push", {}, "main", True),
     # gh
     ("gh pr create", BASH, "gh pr create --fill", {}, "wt", True),
     ("gh pr merge", BASH, "gh pr merge 12 --squash", {}, "wt", True),
     ("gh -R pr merge", BASH, "gh -R o/app pr merge 12", {}, "wt", True),
-    ("gh pr view", BASH, "gh pr view 12 --json state", {}, "wt", False),
-    ("gh pr checks", BASH, "gh pr checks 12", {}, "wt", False),
-    ("gh run list", BASH, "gh run list -L 5", {}, "wt", False),
+    ("gh pr view", BASH, "gh pr view 12 --json state", {}, "wt", True),
+    ("gh pr checks", BASH, "gh pr checks 12", {}, "wt", True),
+    ("gh run list", BASH, "gh run list -L 5", {}, "wt", True),
     ("gh issue create", BASH, "gh issue create -t x -b y", {}, "wt", True),
     ("gh release create", BASH, "gh release create v1", {}, "wt", True),
     ("gh repo delete", BASH, "gh repo delete o/app --yes", {}, "wt", True),
-    ("gh pr comment", BASH, "gh pr comment 12 -b hi", {}, "wt", False),
+    ("gh pr comment", BASH, "gh pr comment 12 -b hi", {}, "wt", True),
     ("gh pr comment dry run", BASH, "gh pr comment 12 -b hi", DRY, "wt", True),
-    ("gh pr review comment", BASH, "gh pr review 12 --comment -b hi", {}, "wt", False),
+    ("gh pr review comment", BASH, "gh pr review 12 --comment -b hi", {}, "wt", True),
     ("gh pr review approve", BASH, "gh pr review 12 --approve", {}, "wt", True),
     ("gh api POST", BASH, "gh api -X POST repos/o/app/issues", {}, "wt", True),
     ("gh api --method PATCH", BASH, "gh api --method=PATCH repos/o/app", {}, "wt", True),
@@ -76,8 +76,8 @@ ROWS = [
     ("gh api -f", BASH, "gh api repos/o/app/issues -f title=x", {}, "wt", True),
     ("gh api -F", BASH, "gh api graphql -F query=@q.graphql", {}, "wt", True),
     ("gh api --input", BASH, "gh api repos/o/app/pulls --input body.json", {}, "wt", True),
-    ("gh api GET", BASH, "gh api repos/o/app/pulls/12", {}, "wt", False),
-    ("gh api -X GET", BASH, "gh api -X GET repos/o/app/pulls/12/comments", {}, "wt", False),
+    ("gh api GET", BASH, "gh api repos/o/app/pulls/12", {}, "wt", True),
+    ("gh api -X GET", BASH, "gh api -X GET repos/o/app/pulls/12/comments", {}, "wt", True),
     # git merge
     ("merge on main", BASH, "git merge shopfloor/eng-1-x", {}, "main", True),
     ("merge on testBranch", BASH, "git merge shopfloor/eng-1-x", TEST_FLOW, "test", True),
@@ -205,7 +205,7 @@ ROWS = [
     ("unterminated quote", BASH, "echo 'oops", {}, "wt", True),
     ("unbalanced paren", BASH, "echo hi )", {}, "wt", True),
     ("alias then call", BASH, "alias p='git push'; p origin main", {}, "wt", True),
-    ("python script on pipe data", BASH, "gh pr view 1 --json body | python3 -m json.tool", {}, "wt", False),
+    ("python script on pipe data", BASH, "cat data.json | python3 -m json.tool", {}, "wt", False),
     ("bash script file", BASH, "bash scripts/test.sh", {}, "wt", True),
     # nesting and wrappers
     ("cd x && (git push origin main)", BASH, "cd %WT% && (git push origin main)", {}, "wt", True),
@@ -340,7 +340,7 @@ ROWS = [
     ("gh auth status -t", BASH, "gh auth status -t", {}, "wt", True),
     ("gh auth status -ht", BASH, "gh auth status -h github.com -t", {}, "wt", True),
     ("gh auth status --show-token", BASH, "gh auth status --show-token", {}, "wt", True),
-    ("gh auth status", BASH, "gh auth status", {}, "wt", False),
+    ("gh auth status", BASH, "gh auth status", {}, "wt", True),
     ("Read ~/.ssh key", READ, {"file_path": "~/.ssh/id_ed25519"}, {}, "wt", True),
     ("cat ~/.aws credentials", BASH, "cat ~/.aws/credentials", {}, "wt", True),
     ("cat ~/.config/gh hosts", BASH, "cat ~/.config/gh/hosts.yml", {}, "wt", True),
@@ -356,7 +356,7 @@ ROWS = [
     # the crew's legitimate workflow
     ("git status", BASH, "git status --short", {}, "wt", False),
     ("git add commit", BASH, "git add app.py && git commit -m 'feat: x'", {}, "wt", False),
-    ("git fetch", BASH, "git fetch origin", {}, "wt", False),
+    ("git fetch", BASH, "git fetch origin", {}, "wt", True),
     ("git checkout file", BASH, "git checkout -- app.py", {}, "wt", False),
     ("git rebase on branch", BASH, "git rebase origin/main", {}, "wt", False),
     ("git log diff show", BASH, "git log --oneline -5 && git diff HEAD~1 --stat && git show HEAD", {}, "wt", False),
@@ -365,8 +365,21 @@ ROWS = [
     ("git -c user.email", BASH, "git -c user.email=c@example.org commit -m x", {}, "wt", False),
     ("git -C main status", BASH, "git -C %MAIN% status", {}, "wt", True),
     ("git stash", BASH, "git stash && git stash pop", {}, "wt", False),
-    ("push crew branch refs/heads", BASH, "git push origin HEAD:refs/heads/shopfloor/eng-1-x", {}, "wt", False),
-    ("gh pr view checks comment", BASH, "gh pr view 7 && gh pr checks 7 && gh pr comment 7 -b ok", {}, "wt", False),
+    ("push crew branch refs/heads", BASH, "git push origin HEAD:refs/heads/shopfloor/eng-1-x", {}, "wt", True),
+    ("git pull", BASH, "git pull --rebase origin main", {}, "wt", True),
+    ("sf push", BASH, "sf push ENG-1 app", {}, "wt", False),
+    ("sf push dry run (sf refuses it)", BASH, "sf push ENG-1 app", DRY, "wt", False),
+    ("sf push dynamic repo", BASH, "sf push ENG-1 $REPO", {}, "wt", True),
+    ("sf sync", BASH, "sf sync ENG-1 app", {}, "wt", False),
+    ("sf pr view", BASH, "sf pr view ENG-1", {}, "wt", False),
+    ("sf pr log", BASH, "sf pr log ENG-1 12345", {}, "wt", False),
+    ("sf pr reply", BASH, "sf pr reply ENG-1 app 7 --body-file %STATE%/tickets/ENG-1/reply.md", {}, "wt", False),
+    ("sf pr reply with a secret file", BASH, "sf pr reply ENG-1 app 7 --body-file ~/.ssh/id_rsa", {}, "wt", True),
+    ("Write clone pin", WRITE, {"file_path": "%STATE%/clones/ENG-1/app.sha256", "content": "x"}, {}, "wt", True),
+    ("Write clone pin casefolded", WRITE, {"file_path": "%STATE%/CLONES/ENG-1/APP.SHA256", "content": "x"},
+     {}, "wt", True),
+    ("redirect into clone pin", BASH, "echo x > %STATE%/clones/ENG-1/app.sha256", {}, "wt", True),
+    ("gh pr view checks comment", BASH, "gh pr view 7 && gh pr checks 7 && gh pr comment 7 -b ok", {}, "wt", True),
     ("Write worktree file", WRITE, {"file_path": "%STATE%/worktrees/eng-1/new.py", "content": "x"}, {}, "wt", False),
     ("MultiEdit worktree", "MultiEdit", {"file_path": "%WT%/app.py", "edits": []}, {}, "wt", False),
     ("Write ticket notes", WRITE, {"file_path": "%STATE%/tickets/ENG-1/plan.md", "content": "x"}, {}, "wt", False),
@@ -553,7 +566,7 @@ ROWS = [
     ('git status --short --branch', BASH, 'git status --short --branch', {}, "wt", False),
     ('git diff -- app.py', BASH, 'git diff -- app.py', {}, "wt", False),
     ('curl -d @payload.json https://example.org/api', BASH, 'curl -d @payload.json https://example.org/api', {}, "wt", False),
-    ('gh pr comment 7 -F notes.md', BASH, 'gh pr comment 7 -F notes.md', {}, "wt", False),
+    ('gh pr comment 7 -F notes.md', BASH, 'gh pr comment 7 -F notes.md', {}, "wt", True),
     ('read -r line < app.py', BASH, 'read -r line < app.py', {}, "wt", False),
     ('make test', BASH, 'make test', {}, "wt", False),
     # fix round 4: inline code default-deny, toolchain code paths, make variables, option values, abbreviations
@@ -790,10 +803,11 @@ class GuardTest(unittest.TestCase):
 
     def test_reasons_name_the_way_out(self):
         d = self.guard.decide
-        self.assertIn("sf ship / sf merge", d(BASH, {"command": "gh pr create"}, self.cwds["wt"], self.cfg))
+        self.assertIn("sf ship or sf merge", d(BASH, {"command": "gh pr create"}, self.cwds["wt"], self.cfg))
+        self.assertIn("sf pr view", d(BASH, {"command": "gh pr view 7"}, self.cwds["wt"], self.cfg))
         self.assertIn("go through sf", d(BASH, {"command": "curl https://api.linear.app/x"}, self.cwds["wt"], self.cfg))
-        self.assertIn("dry run", d(BASH, {"command": "git push origin shopfloor/eng-1-x"}, self.cwds["wt"],
-                                   {**self.cfg, **DRY}))
+        for cmd in ("git push origin shopfloor/eng-1-x", "git fetch origin", "git pull"):
+            self.assertIn("sf push and sf sync", d(BASH, {"command": cmd}, self.cwds["wt"], self.cfg))
 
     def run_hook(self, stdin, crew="demo"):
         env = {k: v for k, v in os.environ.items() if k != "SHOPFLOOR_CREW"}

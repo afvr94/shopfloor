@@ -45,8 +45,8 @@ SED_CMD = re.compile(r"(?:^|[;{}\n])\s*(?:[0-9$]+|/(?:\\.|[^/])*/)?(?:,(?:[0-9$]
 SED_FLAG = re.compile(r"s(.)(?:\\.|(?!\1).)*\1(?:\\.|(?!\1).)*\1[gpIiMm0-9]*[we]")
 
 GIT_READ = {"", "status", "diff", "log", "show", "rev-parse", "ls-files", "grep", "blame", "merge-base", "describe",
-            "fetch", "shortlog", "show-ref", "rev-list", "branch", "tag", "remote", "config", "worktree"}
-GIT_LOCAL = {"add", "commit", "checkout", "switch", "restore", "reset", "stash", "rebase", "merge", "push",
+            "shortlog", "show-ref", "rev-list", "branch", "tag", "remote", "config", "worktree"}
+GIT_LOCAL = {"add", "commit", "checkout", "switch", "restore", "reset", "stash", "rebase", "merge",
              "cherry-pick", "mv", "rm"}
 _DIFF = {"--stat", "--numstat", "--shortstat", "--name-only", "--name-status", "--cached", "--staged", "--no-index",
          "--color", "--no-color", "--word-diff", "--unified", "--patch", "--no-patch", "--exit-code", "--quiet",
@@ -78,8 +78,6 @@ GIT_LONG = {
     "merge-base": {"--is-ancestor", "--all", "--fork-point", "--octopus"},
     "describe": {"--tags", "--always", "--abbrev", "--long", "--dirty", "--exact-match", "--match", "--contains",
                  "--all"},
-    "fetch": {"--all", "--prune", "--tags", "--no-tags", "--depth", "--unshallow", "--quiet", "--verbose",
-              "--dry-run", "--prune-tags", "--force"},
     "show-ref": {"--heads", "--tags", "--verify", "--quiet", "--hash", "--head"},
     "rev-list": {"--count", "--all", "--max-count", "--left-right", "--first-parent", "--reverse", "--since",
                  "--until", "--merges", "--no-merges"},
@@ -110,8 +108,6 @@ GIT_LONG = {
               "--allow-unrelated-histories", "--log", "--signoff"},
     "cherry-pick": {"--continue", "--abort", "--skip", "--quit", "--no-commit", "--signoff", "--mainline",
                     "--strategy", "--strategy-option", "--allow-empty", "--ff", "--keep-redundant-commits"},
-    "push": {"--set-upstream", "--force-with-lease", "--force", "--force-if-includes", "--dry-run", "--quiet",
-             "--verbose", "--no-verify", "--porcelain", "--atomic", "--progress", "--push-option"},
     "mv": {"--force", "--dry-run", "--verbose"},
     "rm": {"--cached", "--force", "--recursive", "--quiet", "--dry-run", "--ignore-unmatch"},
 }
@@ -132,9 +128,6 @@ BRANCH_LIST_FLAGS = {"-a", "--all", "-r", "--remotes", "-l", "--list", "-v", "-v
                      "--color", "--no-color", "--points-at", "--column", "--no-column"}
 TAG_LIST_FLAGS = {"-l", "--list", "-n", "--contains", "--no-contains", "--points-at", "--sort", "--merged",
                   "--no-merged", "--format", "--column"}
-GH_READ = {("pr", "view"), ("pr", "list"), ("pr", "checks"), ("pr", "diff"), ("pr", "status"), ("run", "view"),
-           ("run", "list"), ("run", "watch"), ("repo", "view"), ("issue", "view"), ("issue", "list"),
-           ("auth", "status"), ("workflow", "list"), ("workflow", "view"), ("release", "list"), ("release", "view")}
 
 
 def positionals(words: list, value_opts: set):
@@ -230,7 +223,6 @@ LONG_OPTS = {
     "cp": {"--link", "--symbolic-link"},
     "curl": CURL_OUT | {"--config", "--remote-name", "--remote-name-all", "--upload-file", "--data", "--form"},
     "wget": WGET_OUT | {"--input-file", "--execute", "--config", "--post-file", "--body-file"},
-    "gh": {"--method", "--field", "--raw-field", "--input", "--approve", "--request-changes", "--repo"},
 }
 LONG_OPTS["gawk"] = LONG_OPTS["awk"]
 for _exe, _vals in WRITER_VALUES.items():

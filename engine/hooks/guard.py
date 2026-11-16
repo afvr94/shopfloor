@@ -17,7 +17,7 @@ if _ROOT not in sys.path:
 try:
     from engine.hooks.commands_allow import (
         ADD_LONG, ADD_SHORT, ALLOWED, ASSIGN, BRANCH_LIST_FLAGS, COMMIT_LONG, COMMIT_SHORT, CURL_OUT, ENV_DENY,
-        ENV_OK, FILE_OPS, FIND_ACTIONS, GH_READ, GIT_CONFIG_OK, GIT_GLOBAL_FLAGS, GIT_LOCAL, GIT_LONG, GIT_READ,
+        ENV_OK, FILE_OPS, FIND_ACTIONS, GIT_CONFIG_OK, GIT_GLOBAL_FLAGS, GIT_LOCAL, GIT_LONG, GIT_READ,
         GIT_SHORT_DENY, HANDOFF, KEYWORDS, LANGS, MESSAGE_OPTS, NET_TOOLS, PATH_ARGS, READ_VALUES, SED_CMD,
         SED_FLAG, SYSTEM_BIN, TAG_LIST_FLAGS, TOOLCHAIN, WGET_OUT, WRAP_VALUES, WRAPPERS, WRITER_VALUES, Blocked,
         abbreviates, block, expand_long, interpreter, positionals, short_chars, short_value, toolchain)
@@ -95,7 +95,6 @@ def _dynamic(w: str) -> bool:
 
 class Guard:
     def __init__(self, cfg: dict):
-        self.dry = cfg.get("dryRun", True) is not False
         flow = cfg.get("gitFlow") or {}
         repos = list((cfg.get("repos") or {}).values())
         tb = flow.get("testBranch")
@@ -446,6 +445,8 @@ class Guard:
             if cwd is None or not _under(cwd, self.roots) or _under(cwd, self.repos, fold=True):
                 block("git -C may only point into the crew's worktrees")
         sub, rest = (words[i], words[i + 1:]) if i < len(words) else ("", [])
+        if sub in ("push", "fetch", "pull"):
+            block(f"crews don't run git {sub}; sf push and sf sync do it outside the sandbox")
         if sub not in GIT_READ | GIT_LOCAL:
             block(f"git {literal(sub).replace(SUB, '$(...)')} is not on the guard's list of git commands")
         if sub not in GIT_READ and (cwd is None or _under(cwd, self.repos)):
@@ -487,9 +488,6 @@ class Guard:
 
     git_switch = git_checkout
 
-    def git_push(self, rest, cwd):
-        self.push(rest, cwd, [])
-
     def git_merge(self, rest, cwd):
         if not any(a in ("--abort", "--quit", "--continue") for a in rest):
             b = self.current(cwd, [], "merge")
@@ -511,10 +509,6 @@ class Guard:
     def git_grep(self, rest, cwd):
         if any(a == "-O" or a.startswith(("-O", "--open-files-in-pager")) for a in rest):
             block("git grep -O runs a pager command the guard can't check")
-
-    def git_fetch(self, rest, cwd):
-        if any(a.startswith("--upload-pack") for a in rest):
-            block("git fetch --upload-pack runs commands the guard can't check")
 
     def git_branch(self, rest, cwd):
         bad = [a for a in rest if a.startswith("-") and a.partition("=")[0] not in BRANCH_LIST_FLAGS]
@@ -546,94 +540,12 @@ class Guard:
         if write and key.lower() not in GIT_CONFIG_OK:
             block(f"git config {key} is not allowed; only user.name and user.email may be set")
 
-    def push(self, rest: list, cwd: str | None, loc: list):
-        if self.dry:
-            block("dry run: git push is off")
-        pos, k = [], 0
-        while k < len(rest):
-            a = rest[k]
-            k += 1
-            if a == "--":
-                pos += rest[k:]
-                break
-            if a.startswith("--"):
-                name = a.split("=", 1)[0]
-                if name in ("--delete", "--mirror", "--all", "--branches", "--prune", "--receive-pack", "--exec",
-                            "--repo", "--tags", "--follow-tags"):
-                    block(f"git push {name} is not allowed")
-                if name == "--push-option" and "=" not in a:
-                    k += 1
-            elif a.startswith("-") and len(a) > 1:
-                if "d" in a:
-                    block("git push -d is not allowed")
-                k += "o" in a
-            else:
-                pos.append(a)
-        if any(_dynamic(p) for p in pos):
-            block("can't check a push target built at run time")
-        targets = []
-        if len(pos) < 2:
-            targets.append(self.current(cwd, loc, "push"))
-            upstream = self.branch(cwd, loc, "@{push}")
-            if upstream:
-                targets.append(upstream.partition("/")[2])
-        for spec in pos[1:]:
-            spec = spec[1:] if spec.startswith("+") else spec
-            if spec.startswith(":") or "*" in spec:
-                block("deleting or wildcard pushes are not allowed")
-            src, _, dst = spec.partition(":")
-            dst = dst or src
-            if dst in ("HEAD", "@"):
-                dst = self.current(cwd, loc, "push")
-            targets.append(re.sub(r"^(refs/)?heads/", "", dst))
-        for t in targets:
-            if not re.fullmatch(re.escape(BRANCH_PREFIX) + r"[A-Za-z0-9._/-]+", t) or ".." in t:
-                block(f"pushing to {t or 'that ref'} is not allowed; crews push only {BRANCH_PREFIX}* branches")
-
     def gh(self, words: list):
-        pos, k = [], 1
-        while k < len(words) and len(pos) < 2:
-            a = words[k]
-            k += 1
-            if a in ("-R", "--repo", "--hostname"):
-                k += 1
-            elif not a.startswith("-"):
-                pos.append(a)
-        sub, sub2 = (pos + ["", ""])[:2]
-        if sub == "pr" and sub2 in ("create", "merge"):
-            block("use sf ship / sf merge instead of gh pr create/merge")
-        if sub == "api":
-            return self.gh_api(words)
-        if sub == "auth" and (sub2 == "token" or any("t" in short_chars(a) or a.startswith("--show-t")
-                                                      for a in words)):
-            block("printing the gh token is not allowed")
-        if sub == "pr" and sub2 in ("comment", "review"):
-            if self.dry:
-                block(f"dry run: gh pr {sub2} writes to GitHub")
-            if sub2 == "review" and (not any(a in ("-c", "--comment") for a in words)
-                                     or any(a in ("-a", "--approve", "-r", "--request-changes") for a in words)):
-                block("gh pr review is allowed only with --comment")
-            return
-        if sub and (sub, sub2) not in GH_READ and sub != "search":
-            block(f"gh {' '.join(x for x in (sub, sub2) if x)} is not on the guard's read-only list")
-
-    def gh_api(self, words: list):
-        for k, a in enumerate(words):
-            nxt = words[k + 1] if k + 1 < len(words) else ""
-            if a in ("--method", "-X"):
-                if nxt.upper() != "GET":
-                    block(f"gh api {literal(nxt)} writes to GitHub; use sf")
-            elif a.startswith("--method=") and a[9:].upper() != "GET":
-                block("gh api with a non-GET method writes to GitHub; use sf")
-            elif a.upper() != "-XGET" and not a.startswith("--") and a.startswith("-") and \
-                    any(c in a[1:] for c in "XfF"):
-                block("gh api with a method, fields or --input writes to GitHub; use sf")
-            elif a in ("--field", "--raw-field", "--input") or a.startswith(("--field=", "--raw-field=", "--input=")):
-                block("gh api with fields or --input writes to GitHub; use sf")
+        block("crews don't run gh; use sf pr view, sf pr log, sf pr reply, sf ship or sf merge")
 
     def sf(self, words: list):
         pos = [w for w in words[1:] if not w.startswith("-")]
-        if any(_dynamic(p) for p in pos[:2]):
+        if any(_dynamic(p) for p in pos[:5]):
             block("can't check an sf command built at run time")
         a, b = (pos + ["", ""])[:2]
         # in dry run sf itself refuses writes and logs the "would" line, so the crew sees what it would have done
