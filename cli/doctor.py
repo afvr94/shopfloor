@@ -53,15 +53,24 @@ def _repo_rows(cid: str, cfg: dict, deps: dict) -> list[Row]:
     for name, r in cfg["repos"].items():
         def origin(r=r):
             url = deps["run"](["git", "-C", r["path"], "remote", "get-url", "origin"]).strip()
-            if not re.search(rf"github\.com[:/]{re.escape(r['github'])}(\.git)?/?$", url):
+            if not re.search(rf"github\.com[:/]{re.escape(r['github'])}(\.git)?/?$", url, re.I):
                 return f"origin does not match {r['github']}"
         rows.append(_guarded(f"{cid}: repo {name}", origin))
+        def visible(r=r):
+            try:
+                deps["run"](["gh", "api", f"repos/{r['github']}"])
+            except proc.ProcError:
+                return f"can't see {r['github']} with your gh login"
+        seen = _guarded(f"{cid}: github repo {name}", visible)
+        rows.append(seen)
+        if not seen[0]:
+            continue
         for branch in cfg["protectedBranches"]:
             def protected(r=r, branch=branch):
                 try:
                     out = deps["run"](["gh", "api", f"repos/{r['github']}/branches/{quote(branch, safe='')}"])
                 except proc.ProcError as e:
-                    return None if "404" in str(e) else str(e)  # absent on the remote: nothing to protect
+                    return None if "Branch not found" in str(e) else str(e)  # absent on the remote: nothing to protect
                 if not json.loads(out).get("protected"):
                     return (f"{r['github']}:{branch} is not protected. Settings → Branches → add a rule for "
                             f"{branch}, or turn on a ruleset")

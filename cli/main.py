@@ -20,13 +20,17 @@ def run_tick(crew_id: str, popen=subprocess.Popen, timeout: float | None = None)
     if not state.acquire_lock(lock):
         state.log_run(crew_id, None, "skipped: locked")
         return 0
-    stop = threading.Event()
+    stop_beat = runner.start_heartbeat(lock)
+    child = []
+    prev = None
 
-    def heartbeat():
-        while not stop.wait(runner.HEARTBEAT_SECS):
-            state.beat(lock)
+    def on_term(signum, frame):
+        for proc in child:
+            runner.killpg(proc.pid, signal.SIGTERM)
+        raise SystemExit(128 + signum)
 
-    threading.Thread(target=heartbeat, daemon=True).start()
+    if threading.current_thread() is threading.main_thread():
+        prev = signal.signal(signal.SIGTERM, on_term)
     try:
         argv, env = runner.claude_invocation(crew_id, "/shopfloor:tick")
         paths.logs_dir().mkdir(parents=True, exist_ok=True)
@@ -38,21 +42,17 @@ def run_tick(crew_id: str, popen=subprocess.Popen, timeout: float | None = None)
             except OSError as e:
                 state.log_run(crew_id, None, f"tick failed (could not start claude: {redact(str(e))})")
                 return 1
-            try:
-                code = proc.wait(timeout=timeout if timeout is not None else cfg["limits"]["tickMaxMinutes"] * 60)
-            except subprocess.TimeoutExpired:
-                runner._killpg(proc.pid, signal.SIGTERM)
-                try:
-                    proc.wait(timeout=runner.KILL_GRACE_SECS)
-                except subprocess.TimeoutExpired:
-                    runner._killpg(proc.pid, signal.SIGKILL)
-                    proc.wait()
-                state.log_run(crew_id, None, "tick timed out")
-                return 1
+            child.append(proc)
+            code = runner.wait_or_kill(proc, timeout if timeout is not None else cfg["limits"]["tickMaxMinutes"] * 60)
+        if code is None:
+            state.log_run(crew_id, None, "tick timed out")
+            return 1
         state.log_run(crew_id, None, "tick finished" if code == 0 else f"tick failed (exit {code})")
         return 0 if code == 0 else 1
     finally:
-        stop.set()
+        stop_beat()
+        if prev is not None:
+            signal.signal(signal.SIGTERM, prev)
         state.release(lock)
 
 

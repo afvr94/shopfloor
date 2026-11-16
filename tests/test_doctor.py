@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -78,14 +80,21 @@ class Doctor(unittest.TestCase):
         (paths.crew_dir("demo") / "worktrees").mkdir()
         self.protected = True
         self.missing = set()
+        self.invisible = self.api_error = False
 
     def deps(self, label=True):
         def run(argv, **kw):
             if argv[:2] == ["gh", "auth"]:
                 return ""
             if argv[:2] == ["gh", "api"]:
-                if "/branches/main" not in argv[2]:
+                if self.invisible:
                     raise ProcError(argv, 1, "gh: Not Found (HTTP 404)")
+                if argv[2] == "repos/owner/app":
+                    return "{}"
+                if self.api_error:
+                    raise ProcError(argv, 1, "gh: Bad credentials (HTTP 401)")
+                if "/branches/main" not in argv[2]:
+                    raise ProcError(argv, 1, "gh: Branch not found (HTTP 404)")
                 return json.dumps({"protected": self.protected})
             return real_run(argv, **kw)
         return {
@@ -133,6 +142,28 @@ class Doctor(unittest.TestCase):
         cfg["protectedBranches"] = ["main", "master"]
         cfg_path.write_text(json.dumps(cfg))
         self.assertEqual(self.failing(self.rows()), [])
+
+    def test_invisible_repo_fails_instead_of_skipping_protection(self):
+        self.invisible = True
+        rows = self.rows()
+        (row,) = [r for r in rows if not r[0]]
+        self.assertIn("can't see owner/app with your gh login", row[2])
+        self.assertFalse([r for r in rows if "branch protection" in r[1]])
+
+    def test_other_branch_api_error_fails_the_row(self):
+        self.api_error = True
+        (row,) = [r for r in self.rows() if not r[0]]
+        self.assertIn("branch protection main", row[1])
+        self.assertIn("401", row[2])
+
+    def test_main_doctor_exits_1_on_a_failing_row(self):
+        from cli import main as cli_main
+        d = self.deps()
+        d["which"] = lambda n: None if n == "gh" else "/usr/bin/" + n
+        real = doctor.check_all
+        with mock.patch.object(doctor, "check_all", lambda crew, **kw: real(crew, d)), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cli_main.main(["doctor", "demo"]), 1)
 
     def test_missing_crew_dirs_fail(self):
         shutil.rmtree(paths.crew_dir("demo") / "worktrees")

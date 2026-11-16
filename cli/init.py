@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from cli import doctor, install
-from engine.lib import config, paths
+from engine.lib import config, paths, state
 
 DOCS = ("docs/setup-linear.md", "docs/setup-slack.md", "examples/slack-app-manifest.json")
 
@@ -17,6 +17,14 @@ def write_secret(path: Path, value: str) -> None:
     with os.fdopen(fd, "w") as f:
         f.write(value + "\n")
     os.chmod(path, 0o600)  # O_CREAT's mode is ignored when the file already exists
+
+
+def read_secret(secret, prompt: str) -> str:
+    for _ in range(3):
+        value = secret(prompt).strip()
+        if value:
+            return value
+    raise ValueError(f"no value given for: {prompt.strip(' :')}")
 
 
 def ensure_dirs(crew_id: str) -> None:
@@ -64,14 +72,13 @@ def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, 
     if crew_file.exists():
         out(f"{crew_file} already exists; edit it by hand or pick another crew id.")
         return 1
-    write_secret(Path(cfg["tracker"]["tokenFile"]), secret("Linear API key (hidden): "))
-    write_secret(Path(cfg["chat"]["tokenFile"]), secret("Slack bot token (hidden): "))
-    crew_file.parent.mkdir(parents=True, exist_ok=True)
-    crew_file.write_text(json.dumps(cfg, indent=2) + "\n")
+    write_secret(Path(cfg["tracker"]["tokenFile"]), read_secret(secret, "Linear API key (hidden): "))
+    write_secret(Path(cfg["chat"]["tokenFile"]), read_secret(secret, "Slack bot token (hidden): "))
+    state.atomic_write(crew_file, json.dumps(cfg, indent=2) + "\n")
     board_file = paths.shopfloor_home() / "board.json"
     board = json.loads(board_file.read_text()) if board_file.exists() else {}
     board["crews"] = [*(c for c in board.get("crews", []) if c != cid), cid]
-    board_file.write_text(json.dumps(board, indent=2) + "\n")
+    state.atomic_write(board_file, json.dumps(board, indent=2) + "\n")
     ensure_dirs(cid)
     out(f"Wrote {crew_file}")
 

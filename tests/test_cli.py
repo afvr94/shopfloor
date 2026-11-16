@@ -96,6 +96,25 @@ class Run(Base):
         self.assertEqual(self.runs(), ["tick failed (could not start claude: no such file)"])
         self.assertFalse(paths.tick_lock("demo").exists())
 
+    def test_sigterm_kills_child_and_releases_lock(self):
+        import signal
+        import subprocess
+        env = {**os.environ, "FAKE_CLAUDE_SLEEP": "30", "FAKE_CLAUDE_OUT": self.tmp + "/fake"}
+        p = subprocess.Popen([str(Path(cli_main.__file__).resolve().parent.parent / "bin" / "shopfloor"), "run", "demo"],
+                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        pidfile = Path(self.tmp + "/fake.pid")
+        for _ in range(100):
+            if pidfile.exists() and paths.tick_lock("demo").exists():
+                break
+            time.sleep(0.1)
+        child = int(pidfile.read_text())
+        p.send_signal(signal.SIGTERM)
+        p.wait(timeout=10)
+        time.sleep(0.2)
+        self.assertFalse(paths.tick_lock("demo").exists())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(child, 0)
+
     def test_unknown_subcommand_exits_2(self):
         self.assertEqual(self.main("bogus")[0], 2)
 
@@ -190,6 +209,14 @@ class Init(Base):
         again = self.installer()
         self.assertEqual(self.wizard(again)[0], 1)
         again.install_crew.assert_not_called()
+
+    def test_init_aborts_after_three_empty_secrets(self):
+        out = []
+        secret = mock.Mock(return_value="  ")
+        with self.assertRaises(ValueError):
+            init.run_wizard(ask=self.ask, out=out.append, secret=secret, installer=self.installer())
+        self.assertEqual(secret.call_count, 3)
+        self.assertFalse(paths.crew_config_path("demo").exists())
 
     def test_init_skips_install_when_doctor_fails(self):
         inst = self.installer()

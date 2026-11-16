@@ -50,11 +50,37 @@ def claude_cwd(crew_id: str):
     return d
 
 
-def _killpg(pid: int, sig: int) -> None:
+def killpg(pid: int, sig: int) -> None:
     try:
         os.killpg(pid, sig)
     except ProcessLookupError:
         pass
+
+
+def wait_or_kill(proc, timeout_s: float) -> int | None:
+    """Exit code, or None after killing the whole process group (SIGTERM, then SIGKILL) on timeout."""
+    try:
+        return proc.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        killpg(proc.pid, signal.SIGTERM)
+        try:
+            proc.wait(timeout=KILL_GRACE_SECS)
+        except subprocess.TimeoutExpired:
+            killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+        return None
+
+
+def start_heartbeat(lock) -> callable:
+    """Keep `lock` fresh from a daemon thread; call the returned function to stop."""
+    stop = threading.Event()
+
+    def beat_loop():
+        while not stop.wait(HEARTBEAT_SECS):
+            state.beat(lock)
+
+    threading.Thread(target=beat_loop, daemon=True).start()
+    return stop.set
 
 
 def status(crew_id: str) -> dict | None:
@@ -81,15 +107,8 @@ def _build_one(crew_id: str, key: str, max_minutes: float) -> None:
         except OSError as e:
             state.log_run(crew_id, key, f"build failed (could not start claude: {redact(str(e))})")
             return
-        try:
-            code = proc.wait(timeout=max_minutes * 60)
-        except subprocess.TimeoutExpired:
-            _killpg(proc.pid, signal.SIGTERM)
-            try:
-                proc.wait(timeout=KILL_GRACE_SECS)
-            except subprocess.TimeoutExpired:
-                _killpg(proc.pid, signal.SIGKILL)
-                proc.wait()
+        code = wait_or_kill(proc, max_minutes * 60)
+        if code is None:
             state.log_run(crew_id, key, "build timed out")
             return
     state.log_run(crew_id, key, "build finished" if code == 0 else f"build failed (exit {code})")
@@ -100,19 +119,13 @@ def run_builds(crew_id: str, keys: list[str]) -> None:
     lock = paths.build_lock(crew_id)
     if not state.acquire_lock(lock):
         raise RunnerBusy(f"a build run is already active for crew '{crew_id}'")
-    stop = threading.Event()
-
-    def heartbeat():
-        while not stop.wait(HEARTBEAT_SECS):
-            state.beat(lock)
-
-    threading.Thread(target=heartbeat, daemon=True).start()
+    stop = start_heartbeat(lock)
     try:
         with ThreadPoolExecutor(max_workers=limits["maxParallel"]) as pool:
             for f in [pool.submit(_build_one, crew_id, k, limits["buildMaxMinutes"]) for k in keys]:
                 f.result()
     finally:
-        stop.set()
+        stop()
         state.release(lock)
 
 
