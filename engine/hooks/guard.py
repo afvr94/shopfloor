@@ -21,7 +21,7 @@ try:
         SED_FLAG, SYSTEM_BIN, TAG_LIST_FLAGS, TOOLCHAIN, WGET_OUT, WRAP_VALUES, WRAPPERS, WRITER_VALUES, Blocked,
         abbreviates, block, expand_long, interpreter, positionals, short_chars, short_value, toolchain)
     from engine.hooks.shell import SUB, Unparseable, lex, literal, structure
-    from engine.lib import config, paths
+    from engine.lib import config, crewfs, paths
     _IMPORT_ERROR = None
 except Exception as e:  # reported by main(), which then blocks
     _IMPORT_ERROR = e
@@ -419,12 +419,10 @@ class Guard:
         while d and not self.branch_unknown and _under(d, self.crew_dirs[:1]):
             g = os.path.join(d, ".git")
             if os.path.lexists(g):
-                if os.path.islink(g) or not os.path.isdir(g):
-                    return None
+                wts = self.crew_dirs[0]
                 try:
-                    with open(os.path.join(g, "HEAD")) as f:
-                        head = f.read(512).strip()
-                except OSError:
+                    head = crewfs.read_bytes(wts, os.path.relpath(os.path.join(g, "HEAD"), wts), 512).decode().strip()
+                except (OSError, ValueError):
                     return None
                 b = head[len("ref: refs/heads/"):] if head.startswith("ref: refs/heads/") else ""
                 return b or None

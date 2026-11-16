@@ -154,7 +154,7 @@ class TestBundlePush(GitFlowCase):
         with self.assertRaises(base.GitFlowError):
             self.pf.push("ABC-1", "app")
         out.symlink_to(paths.crew_config_path("crew"))
-        with self.assertRaises(OSError):
+        with self.assertRaises(base.GitFlowError):
             self.pf.push("ABC-1", "app")
 
     def test_lease_is_what_transport_last_saw_on_origin(self):

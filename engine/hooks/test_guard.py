@@ -827,6 +827,21 @@ class GuardTest(unittest.TestCase):
                 reason = self.guard.decide(tool, data, self.cwds[cwd_kind], {**self.cfg, **over})
                 self.assertEqual(reason is not None, blocked, f"{label}: {reason}")
 
+    def test_branch_never_follows_a_link_to_or_inside_git(self):
+        g = self.guard.Guard(self.cfg)
+        self.assertEqual(g.branch(str(self.wt)), "shopfloor/eng-1-x")
+        outside = Path(self.marks["%HOME%"]) / "fake-head"
+        outside.write_text("ref: refs/heads/shopfloor/eng-1-x\n")
+        head_link = paths.worktrees_dir("demo") / "eng-7"
+        (head_link / ".git").mkdir(parents=True)
+        (head_link / ".git" / "HEAD").symlink_to(outside)
+        git_link = paths.worktrees_dir("demo") / "eng-8"
+        git_link.mkdir()
+        (git_link / ".git").symlink_to(self.wt / ".git")
+        for d in (head_link, git_link):
+            with self.subTest(d.name):
+                self.assertIsNone(g.branch(str(d)))
+
     def test_every_rule_family_has_block_and_allow_rows(self):
         self.assertGreater(sum(r[5] for r in ROWS), 50)
         self.assertGreater(sum(not r[5] for r in ROWS), 50)

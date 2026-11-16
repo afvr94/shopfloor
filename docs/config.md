@@ -34,6 +34,7 @@ Paths beginning with `~` are expanded.
 | `limits.maxNewPerTick` | integer | `2` | New tickets claimed in one run. |
 | `limits.buildMaxMinutes` | integer | `180` | A build session is stopped after this long. |
 | `limits.tickMaxMinutes` | integer | `60` | A tick session is stopped after this long. |
+| `limits.bundleMaxMB` | integer | `200` | Largest bundle (MiB) `sf push` and `sf ship` take from a ticket folder. A bigger one is refused before it is copied. |
 
 ### `schedule`
 

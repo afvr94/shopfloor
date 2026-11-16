@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import os
 import re
 import shutil
 from pathlib import Path
 
-from . import gitsafe, paths, transport
+from . import crewfs, gitsafe, paths, transport
 
 SLUG_MAX = 40
 
@@ -20,12 +19,13 @@ def prepare(cfg: dict, key: str, repo_name: str, branch: str) -> Path:
     """Refresh <ticket>/in-<repo>.bundle from origin and, if the ticket has no clone yet, make one from it on
     `branch`. An existing clone belongs to the crew: sf leaves it alone."""
     paths.ticket_dir(cfg["id"], key)  # validates the key
-    wt = paths.worktrees_dir(cfg["id"]) / key / repo_name
+    wts, rel = paths.worktrees_dir(cfg["id"]), f"{key}/{repo_name}"
     base = cfg["repos"][repo_name]["base"]
+    exists = crewfs.exists(wts, rel)  # refuses a link at worktrees/<KEY> before sf does anything
     transport.update(cfg, repo_name)
     with transport.scratch(cfg["id"]) as tmp:
         b = transport.bundle_in(cfg, repo_name, branch, tmp / "in.bundle")
-        if not os.path.lexists(wt):
+        if not exists:
             # built where crews can't write, then moved into place whole
             work = tmp / "clone"
             on_origin = bool(transport.sha(cfg, repo_name, f"refs/heads/{branch}"))
@@ -33,10 +33,9 @@ def prepare(cfg: dict, key: str, repo_name: str, branch: str) -> Path:
             if not on_origin:
                 gitsafe.git(work, "checkout", "--quiet", "--no-track", "-b", branch, f"origin/{base}", local=True)
             gitsafe.git(work, "remote", "set-url", "origin", transport.NO_REMOTE, local=True)
-            wt.parent.mkdir(parents=True, exist_ok=True)
-            os.rename(work, wt)
+            crewfs.move_in(work, wts, rel, replace=False)
         transport.publish(b, cfg["id"], key, f"in-{repo_name}.bundle")
-    return wt
+    return wts / rel
 
 
 def remove(cfg: dict, key: str) -> None:

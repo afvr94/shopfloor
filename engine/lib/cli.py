@@ -15,7 +15,7 @@ from engine.adapters.gitflow import make_gitflow
 from engine.adapters.gitflow.base import GitFlowError, pr_info
 from engine.adapters.tracker import make_tracker
 from engine.adapters.tracker.base import TrackerError, state_key
-from engine.lib import briefing, config, gitsafe, lessons, paths, state, transport, worktrees
+from engine.lib import briefing, config, crewfs, gitsafe, lessons, paths, state, transport, worktrees
 from engine.lib.commands import CommandQueue, CommandQueueError
 from engine.lib.proc import ProcError
 from engine.lib.redact import redact
@@ -66,21 +66,15 @@ def _under(p: str, roots) -> bool:
 
 
 def _write_roots(cfg: dict) -> list:
-    return [paths.worktrees_dir(cfg["id"]), paths.crew_state_dir(cfg["id"]) / "tickets", tempfile.gettempdir(),
-            "/tmp"]
+    return [paths.worktrees_dir(cfg["id"]), paths.tickets_dir(cfg["id"]), tempfile.gettempdir(), "/tmp"]
 
 
 def _crew_file(cfg: dict, path: str) -> str:
-    """A file the crew named, read only if it really sits in the crew's write roots and is no secret."""
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    with os.fdopen(fd) as f:
-        real = os.path.realpath(path)
-        st, opened = os.stat(real), os.fstat(f.fileno())
-        if (st.st_dev, st.st_ino) != (opened.st_dev, opened.st_ino) or \
-                not _under(real, [os.path.realpath(r) for r in _write_roots(cfg)]) or \
-                _under(real, [os.path.realpath(x) for x in config.secret_paths(cfg)]):
-            raise Refused(f"sf reads text only from the crew's worktrees, tickets or temp dirs, not {path}")
-        return f.read()
+    """A file the crew named, read only from inside its write roots, without following any link, and no secret."""
+    root, rel = crewfs.locate(_write_roots(cfg), path)
+    if _under(os.path.join(os.path.realpath(root), rel), [os.path.realpath(x) for x in config.secret_paths(cfg)]):
+        raise Refused(f"sf does not read secret files: {path}")
+    return crewfs.read_bytes(root, rel).decode()
 
 
 def _thread(cfg: dict, key: str) -> ThreadRef:
@@ -190,9 +184,10 @@ def h_ticket_list(a, cfg):
 
 
 def h_ticket_show(a, cfg):
-    d = paths.ticket_dir(cfg["id"], a.key)
-    d.mkdir(parents=True, exist_ok=True)
-    _out({**state.load_ticket(cfg["id"], a.key), "dir": str(d)})
+    with crewfs.folder(paths.tickets_dir(cfg["id"]), paths.check(paths.TICKET_KEY_RE, a.key, "ticket key"),
+                       create=True):
+        pass
+    _out({**state.load_ticket(cfg["id"], a.key), "dir": str(paths.ticket_dir(cfg["id"], a.key))})
 
 
 def h_ticket_set(a, cfg):

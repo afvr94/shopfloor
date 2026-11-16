@@ -7,14 +7,12 @@ clone only as bundle files in the ticket folder, so sf never runs git where a cr
 from __future__ import annotations
 
 import contextlib
-import os
-import shutil
-import stat
 import tempfile
 from pathlib import Path
 
-from . import gitsafe, paths
+from . import config, crewfs, gitsafe, paths
 
+LOCAL_TIMEOUT = 60  # seconds for a bundle check or fetch; a crew-made bundle must not stall sf
 NO_REMOTE = "file:///nonexistent"  # a crew clone's origin: sandboxed network git has nowhere to go
 
 
@@ -30,8 +28,9 @@ def gitdir(crew: str, repo: str) -> Path:
     return root(crew) / f"{repo}.git"
 
 
-def _t(cfg: dict, repo: str, *args: str, check: bool = True, local: bool = False) -> str:
-    return gitsafe.git(gitdir(cfg["id"], repo), *args, bare=True, local=local, check=check)
+def _t(cfg: dict, repo: str, *args: str, check: bool = True, local: bool = False,
+       timeout: float = gitsafe.NET_TIMEOUT) -> str:
+    return gitsafe.git(gitdir(cfg["id"], repo), *args, bare=True, local=local, check=check, timeout=timeout)
 
 
 def ensure(cfg: dict, repo: str) -> Path:
@@ -79,39 +78,26 @@ def bundle_in(cfg: dict, repo: str, branch: str, out: Path) -> Path:
     return out
 
 
-def _ticket_fd(crew: str, key: str) -> int:
-    d = paths.ticket_dir(crew, key)
-    d.parent.mkdir(parents=True, exist_ok=True)
-    d.mkdir(exist_ok=True)
-    # O_NOFOLLOW: a crew may have swapped its ticket folder for a symlink
-    return os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-
-
 def publish(src: Path, crew: str, key: str, name: str) -> Path:
     """Move `src` into the ticket folder as `name`, replacing (never writing through) whatever is there."""
-    fd = _ticket_fd(crew, key)
-    try:
-        os.rename(src, name, dst_dir_fd=fd)
-    finally:
-        os.close(fd)
+    crewfs.move_in(src, paths.tickets_dir(crew), f"{paths.check(paths.TICKET_KEY_RE, key, 'ticket key')}/{name}")
     return paths.ticket_dir(crew, key) / name
 
 
-def take(crew: str, key: str, name: str, out: Path) -> Path:
-    """Copy a crew-made file from the ticket folder into `out`: a regular file only, never through a symlink."""
-    fd = _ticket_fd(crew, key)
+def bundle_max(cfg: dict) -> int:
+    return (cfg.get("limits") or {}).get("bundleMaxMB", config.DEFAULTS["limits"]["bundleMaxMB"]) << 20
+
+
+def take(cfg: dict, key: str, name: str, out: Path) -> Path:
+    """Copy a crew-made bundle out of the ticket folder into `out`: a regular file under limits.bundleMaxMB,
+    checked before a byte is copied."""
+    rel = f"{paths.check(paths.TICKET_KEY_RE, key, 'ticket key')}/{name}"
     try:
-        src = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+        return crewfs.copy_out(paths.tickets_dir(cfg["id"]), rel, out, bundle_max(cfg))
     except FileNotFoundError:
         raise TransportError(f"no {name} in {key}'s ticket folder") from None
-    finally:
-        os.close(fd)
-    with os.fdopen(src, "rb") as f:
-        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
-            raise TransportError(f"{name} is not a regular file")
-        with open(out, "wb") as o:
-            shutil.copyfileobj(f, o)
-    return out
+    except crewfs.CrewFsError as e:
+        raise TransportError(f"refusing {name}: {e}") from None
 
 
 def receive(cfg: dict, key: str, repo: str, branch: str) -> str:
@@ -119,13 +105,14 @@ def receive(cfg: dict, key: str, repo: str, branch: str) -> str:
     ensure(cfg, repo)
     name = f"out-{repo}.bundle"
     with scratch(cfg["id"]) as tmp:
-        b = take(cfg["id"], key, name, tmp / "out.bundle")
-        _t(cfg, repo, "bundle", "verify", "--quiet", str(b), local=True)
-        heads = {line.split()[-1] for line in _t(cfg, repo, "bundle", "list-heads", str(b), local=True).splitlines()}
+        b = take(cfg, key, name, tmp / "out.bundle")
+        _t(cfg, repo, "bundle", "verify", "--quiet", str(b), local=True, timeout=LOCAL_TIMEOUT)
+        heads = {line.split()[-1] for line in
+                 _t(cfg, repo, "bundle", "list-heads", str(b), local=True, timeout=LOCAL_TIMEOUT).splitlines()}
         if f"refs/heads/{branch}" not in heads:
             raise TransportError(f"{name} does not carry {branch}; run git bundle create <dir>/{name} {branch}")
         _t(cfg, repo, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", str(b),
-           f"+refs/heads/{branch}:refs/crew/{branch}", local=True)
+           f"+refs/heads/{branch}:refs/crew/{branch}", local=True, timeout=LOCAL_TIMEOUT)
     return sha(cfg, repo, f"refs/crew/{branch}")
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import unittest
 
 from engine.lib import proc
@@ -25,6 +26,13 @@ class Proc(unittest.TestCase):
         with self.assertRaises(proc.ProcError) as cm:
             proc.run(["sleep", "5"], timeout=0.2)
         self.assertIsNone(cm.exception.code)
+        self.assertIn("timed out after", str(cm.exception))
+
+    def test_timeout_kills_the_whole_process_group(self):
+        t = time.monotonic()
+        with self.assertRaises(proc.ProcError):
+            proc.run(["sh", "-c", "sleep 30 & sleep 30 & wait"], timeout=0.3)
+        self.assertLess(time.monotonic() - t, 5)
 
 
 if __name__ == "__main__":

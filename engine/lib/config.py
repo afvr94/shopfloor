@@ -28,6 +28,7 @@ DEFAULTS = {
         "maxNewPerTick": 2,
         "buildMaxMinutes": 180,
         "tickMaxMinutes": 60,
+        "bundleMaxMB": 200,
     },
     "voice": {"name": "Shopfloor", "style": "plain"},
     "gitFlow": {"type": "pr-only", "testBranch": None, "mergeDenyPaths": []},

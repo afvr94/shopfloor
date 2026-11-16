@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 
 from engine.lib.redact import redact
@@ -15,13 +17,18 @@ class ProcError(Exception):
 
 
 def run(argv: list[str], cwd=None, timeout=300, env=None, check=True) -> str:
+    # its own process group, so a timeout also kills helpers it started (ssh, remote-https)
+    p = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True, start_new_session=True)
     try:
-        r = subprocess.run(
-            argv, cwd=cwd, env=env, timeout=timeout, capture_output=True, text=True
-        )
-    except subprocess.TimeoutExpired as e:
-        err = e.stderr.decode("utf-8", "replace") if isinstance(e.stderr, bytes) else e.stderr
-        raise ProcError(argv, None, err or "timed out") from None
-    if check and r.returncode != 0:
-        raise ProcError(argv, r.returncode, r.stderr)
-    return r.stdout
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        p.communicate()
+        raise ProcError(argv, None, f"timed out after {timeout:g}s and was stopped") from None
+    if check and p.returncode != 0:
+        raise ProcError(argv, p.returncode, err)
+    return out

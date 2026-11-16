@@ -16,6 +16,7 @@ from . import paths
 from .proc import run
 
 _NO_VERIFY = {"push", "commit", "merge"}
+NET_TIMEOUT = 300  # seconds; the default for every git call, which may reach the network
 _CREW_DIRS = {"worktrees", "tickets"}
 
 
@@ -48,7 +49,8 @@ def flags() -> list[str]:
     return [x for kv in pinned for x in ("-c", kv)]
 
 
-def git(where, *args: str, bare: bool = False, local: bool = False, check: bool = True) -> str:
+def git(where, *args: str, bare: bool = False, local: bool = False, check: bool = True,
+        timeout: float = NET_TIMEOUT) -> str:
     """git in `where`, an sf-only directory: a bare repo when `bare` (GIT_DIR is set, nothing is discovered),
     else a work tree, a repo's parent or the owner's checkout. `local` drops the user's global config too, for
     commands that only move data between sf's own repos and bundles."""
@@ -69,4 +71,4 @@ def git(where, *args: str, bare: bool = False, local: bool = False, check: bool 
         env["GIT_DIR"] = str(where)
     if local:
         env["GIT_CONFIG_GLOBAL"] = os.devnull
-    return run(["git", *flags(), *args], cwd=str(where), env=env, check=check).strip()
+    return run(["git", *flags(), *args], cwd=str(where), env=env, check=check, timeout=timeout).strip()
