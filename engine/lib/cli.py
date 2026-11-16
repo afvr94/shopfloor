@@ -40,7 +40,7 @@ class Usage(Exception):
 
 
 def sign(body: str, voice_name: str) -> str:
-    return f"{body}\n\n— {voice_name}, a Shopfloor crew"
+    return f"{body}\n\n— {voice_name}" + ("" if voice_name == "Shopfloor" else ", a Shopfloor crew")
 
 
 def _out(obj) -> None:

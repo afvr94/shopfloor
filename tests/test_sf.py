@@ -138,6 +138,7 @@ class SfTest(SfCase):
         code, out, _ = self.sf("tracker", "comment", "ENG-1", "--body-file", str(f))
         self.assertEqual((code, out.strip()), (0, "c1"))
         self.assertTrue(self.tracker.calls[0][2].endswith("— Demo, a Shopfloor crew"))
+        self.assertEqual(cli.sign("hi", "Shopfloor"), "hi\n\n— Shopfloor")
         self.sf("tracker", "comment", "ENG-1", "--body-file", str(f), "--update", "c9")
         self.assertEqual(self.tracker.calls[1][:3], ("update_comment", "ENG-1", "c9"))
 

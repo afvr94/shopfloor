@@ -47,7 +47,7 @@ The board is at `http://127.0.0.1:7420` once installed (`bin/shopfloor board` ru
 
 ## Dry run
 
-Every new crew starts with `"dryRun": true`. In dry run the crew chats and builds locally, but it does not push, open pull requests, write to Linear or merge. `sf` prints `dry-run: would ...` for each skipped action. When the output looks right, set `"dryRun": false` in `~/.shopfloor/crews/<crew-id>.json`. The wizard never does that for you.
+Every new crew starts with `"dryRun": true`. In dry run the crew chats and builds locally, but it does not push, open pull requests, write to Linear or merge. `sf` prints `dry-run: would ...` for each skipped action. When the output looks right, set `"dryRun": false` in `~/.shopfloor/crews/<crew-id>.json`. The wizard never does that for you. Tickets a dry run already took stay where the dry run left them, with no pull request; reply `retry` in a ticket's thread to build it again for real, or `cancel` to drop it.
 
 ## Commands
 
