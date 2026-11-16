@@ -203,10 +203,18 @@ class SfTest(unittest.TestCase):
         self.assertFalse(raw["paused"])
         self.assertEqual(raw["id"], "demo")
 
-    def test_build_without_runner_exits_1(self):
-        code, _, err = self.sf("build", "status")
-        self.assertEqual(code, 1)
-        self.assertIn("build runner not available", err)
+    def test_build_calls_runner_with_crew_id(self):
+        fake = mock.Mock()
+        fake.status.return_value = {"pid": 1}
+        import engine.lib
+        with mock.patch.dict("sys.modules", {"engine.lib.runner": fake}), \
+                mock.patch.object(engine.lib, "runner", fake, create=True):
+            code, _, _ = self.sf("build", "start", "ENG-1", "ENG-2")
+            self.assertEqual(code, 0)
+            fake.start.assert_called_once_with("demo", ["ENG-1", "ENG-2"])
+            code, out, _ = self.sf("build", "status")
+            self.assertEqual(code, 0)
+            fake.status.assert_called_once_with("demo")
 
     def test_errors_are_redacted(self):
         self.tracker.transition = mock.Mock(side_effect=cli.TrackerError(f"boom {TOKEN}"))

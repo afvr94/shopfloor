@@ -249,9 +249,9 @@ def h_build(a, cfg):
     except ImportError:
         raise Refused("build runner not available") from None
     if a.sub == "start":
-        runner.start(cfg, a.keys)
+        runner.start(cfg["id"], a.keys)
     else:
-        _out(runner.status(cfg))
+        _out(runner.status(cfg["id"]))
 
 
 def h_pause(a, cfg):
