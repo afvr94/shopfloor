@@ -424,12 +424,16 @@ class Guard:
             except OSError:
                 return None
             if found:
-                try:
-                    head = crewfs.read_bytes(wts, os.path.relpath(os.path.join(g, "HEAD"), wts), 512).decode().strip()
-                except (OSError, ValueError):
-                    return None
-                b = head[len("ref: refs/heads/"):] if head.startswith("ref: refs/heads/") else ""
-                return b or None
+                # HEAD is detached mid-rebase; git keeps the branch the rebase will update in head-name
+                for name in ("HEAD", "rebase-merge/head-name", "rebase-apply/head-name"):
+                    try:
+                        head = crewfs.read_bytes(wts, os.path.relpath(os.path.join(g, name), wts), 512).decode().strip()
+                    except (OSError, ValueError):
+                        continue
+                    head = head.removeprefix("ref: ")
+                    if head.startswith("refs/heads/") and head[len("refs/heads/"):]:
+                        return head[len("refs/heads/"):]
+                return None
             d = os.path.dirname(d)
         return None
 

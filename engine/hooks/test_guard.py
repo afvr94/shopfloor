@@ -842,6 +842,25 @@ class GuardTest(unittest.TestCase):
             with self.subTest(d.name):
                 self.assertIsNone(g.branch(str(d)))
 
+    def test_rebase_with_a_conflict_keeps_its_branch(self):
+        d = paths.worktrees_dir("demo") / "eng-9"
+        _git(paths.worktrees_dir("demo"), "clone", "-q", self.marks["%MAIN%"], str(d))
+        for branch, text in (("side", "print(2)\n"), ("shopfloor/eng-9-x", "print(3)\n")):
+            _git(d, "checkout", "-q", "-b", branch, "main")
+            (d / "app.py").write_text(text)
+            _git(d, "commit", "-q", "-am", branch)
+        subprocess.run(["git", "rebase", "side"], cwd=d, capture_output=True)  # stops on the conflict
+        self.assertFalse((d / ".git" / "HEAD").read_text().startswith("ref:"))
+        g = self.guard.Guard(self.cfg)
+        self.assertEqual(g.branch(str(d)), "shopfloor/eng-9-x")
+        for cmd in ("git rebase --continue", "git rebase --abort"):
+            self.assertIsNone(self.guard.decide(BASH, {"command": cmd}, str(d), self.cfg))
+        locked = {**self.cfg, "protectedBranches": ["shopfloor/eng-9-x"]}
+        self.assertIsNotNone(self.guard.decide(BASH, {"command": "git rebase --continue"}, str(d), locked))
+        subprocess.run(["git", "rebase", "--abort"], cwd=d, capture_output=True)
+        _git(d, "checkout", "-q", "--detach")
+        self.assertIsNone(g.branch(str(d)))  # detached with no rebase: still unknown
+
     def test_every_rule_family_has_block_and_allow_rows(self):
         self.assertGreater(sum(r[5] for r in ROWS), 50)
         self.assertGreater(sum(not r[5] for r in ROWS), 50)
