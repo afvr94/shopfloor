@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 from pathlib import Path
 
 from . import crewfs, gitsafe, paths, transport
@@ -39,5 +38,5 @@ def prepare(cfg: dict, key: str, repo_name: str, branch: str) -> Path:
 
 
 def remove(cfg: dict, key: str) -> None:
-    paths.ticket_dir(cfg["id"], key)
-    shutil.rmtree(paths.worktrees_dir(cfg["id"]) / key, ignore_errors=True)
+    paths.ticket_dir(cfg["id"], key)  # validates the key
+    crewfs.remove_tree(paths.worktrees_dir(cfg["id"]), key)

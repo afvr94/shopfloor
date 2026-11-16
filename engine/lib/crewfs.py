@@ -152,6 +152,30 @@ def move_in(src, root, rel, replace: bool = True) -> None:
         os.rename(src, parts[-1], dst_dir_fd=d)
 
 
+def remove_tree(root, rel) -> None:
+    """Delete root/rel and everything under it. Each folder is opened no-follow through its parent's fd, so a link
+    anywhere in the tree is removed itself, never followed; a folder swapped for a link mid-walk is refused."""
+    parts = _parts(rel)
+    try:
+        with folder(root, Path(*parts[:-1]) if len(parts) > 1 else None) as d:
+            _remove(d, parts[-1], str(rel))
+    except FileNotFoundError:
+        return
+
+
+def _remove(d: int, name: str, what: str) -> None:
+    if not stat.S_ISDIR(os.stat(name, dir_fd=d, follow_symlinks=False).st_mode):
+        os.unlink(name, dir_fd=d)
+        return
+    fd = _down(d, name, what)
+    try:
+        for child in os.listdir(fd):
+            _remove(fd, child, what)
+    finally:
+        os.close(fd)
+    os.rmdir(name, dir_fd=d)
+
+
 def locate(roots, path: str, base=None) -> tuple:
     """(root, rel) for a path a crew named inside one of `roots`, matched as written or through the root's real
     path, ignoring case as macOS does. A relative path is taken relative to `base` (the ticket folder)."""

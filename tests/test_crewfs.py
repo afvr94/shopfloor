@@ -74,6 +74,22 @@ class Unit(unittest.TestCase):
             with self.subTest(p), self.assertRaises(crewfs.CrewFsError):
                 crewfs.locate([self.root], p, base=base)
 
+    def test_remove_tree_never_follows_a_link(self):
+        (self.root / "a" / "b" / "c").mkdir()
+        (self.root / "a" / "b" / "c" / "g.txt").write_text("x")
+        (self.root / "a" / "b" / "to-dir").symlink_to(self.outside / "b")
+        (self.root / "a" / "to-file").symlink_to(self.outside / "b" / "f.txt")
+        (self.root / "top").symlink_to(self.outside)
+        crewfs.remove_tree(self.root, "a")
+        crewfs.remove_tree(self.root, "top")
+        crewfs.remove_tree(self.root, "gone")
+        self.assertEqual(list(self.root.iterdir()), [])
+        self.assertEqual((self.outside / "b" / "f.txt").read_text(), "SECRET")
+        (self.root / "x").symlink_to(self.outside)
+        with self.assertRaises(crewfs.CrewFsError):
+            crewfs.remove_tree(self.root, "x/b")
+        self.assertTrue((self.outside / "b" / "f.txt").exists())
+
     def test_write_creates_exclusively_and_replaces_a_planted_link(self):
         target = self.outside / "b" / "f.txt"
         (self.root / "a" / "out").symlink_to(target)
