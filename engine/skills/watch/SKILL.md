@@ -22,7 +22,7 @@ A failure that points at CI or deploy config, or at something unrelated to the c
 For each new comment: make the fix and push, or answer with `gh pr comment <url> --body-file <file>`. Reply in the configured voice. A request that would trigger a deal breaker, or that grows the change well past the ticket, gets `sf chat ask`.
 
 ## 4. Outcomes
-- Merged: `sf ticket set <KEY> --stage merged`, post a short note in the thread, and `sf tracker transition <KEY> done` if the crew config allows that move.
+- Merged: `sf ticket set <KEY> --stage merged`, post a short note in the thread.
 - Closed without merging: `sf ticket set <KEY> --stage stopped` and say so in the thread.
 - Several PRs: act only when all of them reached the same outcome; otherwise keep tending the open ones.
 
