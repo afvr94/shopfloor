@@ -128,5 +128,21 @@ class DefaultCallTest(unittest.TestCase):
         self.assertEqual(post.args[:2], ("POST", "https://slack.com/api/chat.postMessage"))
 
 
+class ChannelCheck(unittest.TestCase):
+    def check(self, answer):
+        return SlackChat(CFG, call=FakeSlack(lambda m, p: answer(m, p))).channel_check()
+
+    def test_member_channel_is_fine(self):
+        self.assertIsNone(self.check(lambda m, p: {"ok": True, "channel": {"is_member": True}}))
+
+    def test_not_a_member(self):
+        self.assertRegex(self.check(lambda m, p: {"ok": True, "channel": {"is_member": False}}), "not a member")
+
+    def test_unknown_channel(self):
+        def boom(m, p):
+            raise ChatError("slack conversations.info failed: channel_not_found")
+        self.assertIn("channel_not_found", self.check(boom))
+
+
 if __name__ == "__main__":
     unittest.main()

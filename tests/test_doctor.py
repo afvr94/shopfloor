@@ -1,0 +1,158 @@
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from cli import doctor
+from engine.adapters.chat import make_chat
+from engine.adapters.tracker import make_tracker
+from engine.lib import paths
+from engine.lib.proc import ProcError
+from engine.lib.proc import run as real_run
+from tests.fakes import FakeLinear, FakeSlack
+
+TOKEN = "lin_api_" + "SECRETVALUE123"
+SLACK_TOKEN = "xoxb-" + "abc"
+TEAM = {"key": "ENG", "labels": {"nodes": [{"name": "shopfloor"}]},
+        "states": {"nodes": [{"name": n} for n in ("Todo", "In Progress", "In Review")]}}
+
+
+def linear_answer(label=True):
+    def answer(query, variables):
+        if "viewer" in query:
+            return {"viewer": {"name": "Bot"}}
+        team = json.loads(json.dumps(TEAM))
+        if not label:
+            team["labels"]["nodes"] = []
+        return {"teams": {"nodes": [team]}}
+    return answer
+
+
+def slack_answer(method, params):
+    if method == "conversations.info":
+        return {"ok": True, "channel": {"is_member": True}}
+    return {"ok": True, "user": "bot"}
+
+
+class Doctor(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        p = mock.patch.dict(os.environ, {"SHOPFLOOR_HOME": str(self.tmp / "sf")})
+        p.start()
+        self.addCleanup(p.stop)
+        home = paths.shopfloor_home()
+        (home / "crews").mkdir(parents=True)
+        (home / "secrets").mkdir()
+        self.secrets = {}
+        for n, value in (("linear", TOKEN), ("slack", SLACK_TOKEN)):
+            f = home / "secrets" / n
+            fd = os.open(f, os.O_CREAT | os.O_WRONLY, 0o600)
+            os.write(fd, value.encode())
+            os.close(fd)
+            self.secrets[n] = f
+        self.repo = self.tmp / "app"
+        self.repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "remote", "add", "origin", "git@github.com:owner/app.git"],
+                       check=True)
+        cfg = {
+            "id": "demo", "dryRun": True,
+            "repos": {"app": {"github": "owner/app", "base": "main", "path": str(self.repo)}},
+            "protectedBranches": ["main"],
+            "tracker": {"type": "linear", "tokenFile": str(self.secrets["linear"]),
+                        "linear": {"team": "ENG", "label": "shopfloor",
+                                   "states": {"todo": "Todo", "inProgress": "In Progress", "review": "In Review"}},
+                        "mayMove": ["todo->inProgress"]},
+            "chat": {"type": "slack", "tokenFile": str(self.secrets["slack"]),
+                     "slack": {"channel": "C1", "ownerUserId": "U1"}},
+        }
+        (home / "crews" / "demo.json").write_text(json.dumps(cfg))
+        (paths.crew_dir("demo") / "tickets").mkdir(parents=True)
+        (paths.crew_dir("demo") / "worktrees").mkdir()
+        self.protected = True
+        self.missing = set()
+
+    def deps(self, label=True):
+        def run(argv, **kw):
+            if argv[:2] == ["gh", "auth"]:
+                return ""
+            if argv[:2] == ["gh", "api"]:
+                if "/branches/main" not in argv[2]:
+                    raise ProcError(argv, 1, "gh: Not Found (HTTP 404)")
+                return json.dumps({"protected": self.protected})
+            return real_run(argv, **kw)
+        return {
+            "which": lambda n: None if n in self.missing else "/usr/bin/" + n,
+            "run": run,
+            "tracker": lambda c: make_tracker(c, post=FakeLinear(linear_answer(label))),
+            "chat": lambda c: make_chat(c, call=FakeSlack(slack_answer)),
+            "health": lambda url: True,
+        }
+
+    def rows(self, **kw):
+        return doctor.check_all("demo", self.deps(**kw))
+
+    def failing(self, rows):
+        return [name for ok, name, _ in rows if not ok]
+
+    def test_all_green_with_fakes(self):
+        rows = self.rows()
+        self.assertEqual(self.failing(rows), [], rows)
+        names = " ".join(n for _, n, _ in rows)
+        for expect in ("platform", "python", "claude", "gh auth", "branch protection main", "guard", "sandbox"):
+            self.assertIn(expect, names)
+
+    def test_reports_each_failure_without_secrets(self):
+        self.missing.add("gh")
+        os.chmod(self.secrets["slack"], 0o644)
+        rows = self.rows(label=False)
+        bad = " | ".join(f"{n}: {d}" for ok, n, d in rows if not ok)
+        self.assertGreaterEqual(len(self.failing(rows)), 3)
+        self.assertRegex(bad, "gh")
+        self.assertRegex(bad, "0600")
+        self.assertRegex(bad, "label 'shopfloor'")
+        self.assertNotIn(TOKEN, str(rows))
+        self.assertNotIn(SLACK_TOKEN, str(rows))
+
+    def test_unprotected_branch_fails_with_how_to_fix(self):
+        self.protected = False
+        (row,) = [r for r in self.rows() if not r[0]]
+        self.assertIn("branch protection main", row[1])
+        self.assertIn("Settings", row[2])
+
+    def test_branch_missing_on_remote_is_skipped(self):
+        cfg_path = paths.crew_config_path("demo")
+        cfg = json.loads(cfg_path.read_text())
+        cfg["protectedBranches"] = ["main", "master"]
+        cfg_path.write_text(json.dumps(cfg))
+        self.assertEqual(self.failing(self.rows()), [])
+
+    def test_missing_crew_dirs_fail(self):
+        shutil.rmtree(paths.crew_dir("demo") / "worktrees")
+        self.assertEqual(self.failing(self.rows()), ["demo: crew dirs"])
+
+    def test_missing_sandbox_tool_fails_with_hint(self):
+        self.missing.add("sandbox-exec" if doctor.sys.platform == "darwin" else "bwrap")
+        (row,) = [r for r in self.rows() if not r[0]]
+        self.assertIn("sandbox", row[1])
+
+    def test_board_health_is_a_warning_during_init(self):
+        d = self.deps()
+        d["health"] = lambda url: False
+        self.assertIn("board", " ".join(self.failing(doctor.check_all("demo", d))))
+        self.assertEqual(self.failing(doctor.check_all("demo", d, during_init=True)), [])
+
+    def test_broken_crew_config_is_one_row(self):
+        paths.crew_config_path("demo").write_text("{nope")
+        self.assertIn("demo: config", self.failing(self.rows()))
+
+
+if __name__ == "__main__":
+    unittest.main()

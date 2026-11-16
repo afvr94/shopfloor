@@ -17,6 +17,8 @@ Q_ISSUES = """query($filter: IssueFilter, $after: String) {
 Q_ISSUE = "query($id: String!) { issue(id: $id) { %s } }" % _ISSUE
 Q_STATES = "query($filter: WorkflowStateFilter) { workflowStates(filter: $filter) { nodes { id } } }"
 Q_VIEWER = "query { viewer { name } }"
+Q_TEAM = """query($key: String!) { teams(filter: {key: {eq: $key}}) {
+  nodes { key labels(first: 250) { nodes { name } } states(first: 250) { nodes { name } } } } }"""
 M_UPDATE = "mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: {stateId: $stateId}) { success } }"
 M_COMMENT = "mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id } } }"
 M_COMMENT_UPDATE = "mutation($id: String!, $body: String!) { commentUpdate(id: $id, input: {body: $body}) { success } }"
@@ -119,3 +121,15 @@ class LinearTracker:
 
     def viewer(self) -> str:
         return self.post(Q_VIEWER, {})["viewer"]["name"]
+
+    def team_check(self) -> list[str]:
+        """Config problems against the live team: missing team, opt-in label or workflow states."""
+        team_key = self.lin["team"]
+        nodes = self.post(Q_TEAM, {"key": team_key})["teams"]["nodes"]
+        if not nodes:
+            return [f"team {team_key!r} not found"]
+        labels = {n["name"].lower() for n in nodes[0]["labels"]["nodes"]}
+        states = {n["name"] for n in nodes[0]["states"]["nodes"]}
+        problems = [] if self.lin["label"].lower() in labels else [f"label {self.lin['label']!r} not found in team {team_key}"]
+        return problems + [f"workflow state {n!r} not found in team {team_key}"
+                           for n in self.lin["states"].values() if n not in states]

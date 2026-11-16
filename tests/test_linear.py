@@ -203,6 +203,17 @@ class LinearTests(unittest.TestCase):
         self.assertEqual(base.state_key(CFG, "In Review"), "review")
         self.assertIsNone(base.state_key(CFG, "Nope"))
 
+    def test_team_check_reports_each_missing_piece(self):
+        team = {"key": "ENG", "labels": {"nodes": [{"name": "Shopfloor"}]},
+                "states": {"nodes": [{"name": "Todo"}, {"name": "In Progress"}]}}
+        t = make_tracker(CFG, post=FakeLinear([{"teams": {"nodes": [team]}}]))
+        self.assertEqual(t.team_check(), ["workflow state 'In Review' not found in team ENG"])
+        team["labels"]["nodes"] = []
+        t = make_tracker(CFG, post=FakeLinear([{"teams": {"nodes": [team]}}]))
+        self.assertIn("label 'shopfloor' not found in team ENG", t.team_check())
+        t = make_tracker(CFG, post=FakeLinear([{"teams": {"nodes": []}}]))
+        self.assertEqual(t.team_check(), ["team 'ENG' not found"])
+
     def test_make_tracker(self):
         self.assertIsInstance(make_tracker(CFG, post=FakeLinear([])), linear.LinearTracker)
 

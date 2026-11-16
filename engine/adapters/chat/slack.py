@@ -72,3 +72,12 @@ class SlackChat:
 
     def auth_test(self) -> str:
         return self.call("auth.test", {})["user"]
+
+    def channel_check(self) -> str | None:
+        try:
+            info = self.call("conversations.info", {"channel": self.slack["channel"]})
+        except ChatError as e:
+            return str(e)
+        if not info.get("channel", {}).get("is_member"):
+            return f"the bot is not a member of channel {self.slack['channel']}; invite it"
+        return None

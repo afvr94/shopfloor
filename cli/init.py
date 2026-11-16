@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+import getpass
+import json
+import os
+from pathlib import Path
+
+from cli import doctor, install
+from engine.lib import config, paths
+
+DOCS = ("docs/setup-linear.md", "docs/setup-slack.md", "examples/slack-app-manifest.json")
+
+
+def write_secret(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(value + "\n")
+    os.chmod(path, 0o600)  # O_CREAT's mode is ignored when the file already exists
+
+
+def ensure_dirs(crew_id: str) -> None:
+    for d in ("worktrees", "tickets"):
+        (paths.crew_state_dir(crew_id) / d).mkdir(exist_ok=True)
+
+
+def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, deps=None) -> int:
+    def q(prompt: str, default: str = "") -> str:
+        return ask(f"{prompt}{f' [{default}]' if default else ''}: ").strip() or default
+
+    out("Shopfloor setup. New crews start in dry run; this wizard never turns it off.")
+    out(f"Linear and Slack setup: {DOCS[0]}, {DOCS[1]} (Slack app manifest: {DOCS[2]})")
+    cid = q("Crew id", "demo")
+    team, label = q("Linear team key"), q("Opt-in label", "shopfloor")
+    states = {"todo": q("Linear state for new work", "Todo"), "inProgress": q("Linear in-progress state", "In Progress"),
+              "review": q("Linear in-review state", "In Review")}
+    channel, owner = q("Slack channel id"), q("Slack owner user id")
+    repo = q("Repo name", "app")
+    github, base = q("GitHub repo (owner/name)"), q("Base branch", "main")
+    local = q("Local path to the checkout")
+    try:
+        every = int(q("Run every N hours", "3"))
+    except ValueError:
+        every = 0
+    sched = {"start": q("First run (HH:MM)", "07:00"), "until": q("Last run (HH:MM)", "22:00"),
+             "everyHours": every, "weekdaysOnly": q("Weekdays only (y/n)", "y") == "y"}
+
+    secrets = paths.shopfloor_home() / "secrets"
+    cfg = {
+        "id": cid, "dryRun": True, "schedule": sched,
+        "repos": {repo: {"github": github, "base": base, "path": local}},
+        "protectedBranches": sorted({"main", "master", base}),
+        "tracker": {"type": "linear", "tokenFile": str(secrets / f"{cid}-linear"),
+                    "linear": {"team": team, "label": label, "states": states},
+                    "mayMove": ["todo->inProgress", "inProgress->review"]},
+        "chat": {"type": "slack", "tokenFile": str(secrets / f"{cid}-slack"),
+                 "slack": {"channel": channel, "ownerUserId": owner}},
+    }
+    errs = config.validate(cfg)
+    if errs:
+        out("Config is invalid:\n- " + "\n- ".join(errs))
+        return 1
+    crew_file = paths.crew_config_path(cid)
+    if crew_file.exists():
+        out(f"{crew_file} already exists; edit it by hand or pick another crew id.")
+        return 1
+    write_secret(Path(cfg["tracker"]["tokenFile"]), secret("Linear API key (hidden): "))
+    write_secret(Path(cfg["chat"]["tokenFile"]), secret("Slack bot token (hidden): "))
+    crew_file.parent.mkdir(parents=True, exist_ok=True)
+    crew_file.write_text(json.dumps(cfg, indent=2) + "\n")
+    board_file = paths.shopfloor_home() / "board.json"
+    board = json.loads(board_file.read_text()) if board_file.exists() else {}
+    board["crews"] = [*(c for c in board.get("crews", []) if c != cid), cid]
+    board_file.write_text(json.dumps(board, indent=2) + "\n")
+    ensure_dirs(cid)
+    out(f"Wrote {crew_file}")
+
+    if doctor.report(doctor.check_all(cid, deps, during_init=True), out):
+        out("Fix the failures above, then run: shopfloor install")
+        return 1
+    installer.install_board(config.load_board())
+    installer.install_crew(config.load_crew(cid))
+    out(f"Installed. Crew '{cid}' is in dry run: it reads and plans but writes nothing until you set dryRun to false.")
+    return 0
