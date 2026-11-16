@@ -103,6 +103,8 @@ class LinearTracker:
         frm = state_key(self.cfg, t.state)
         if frm is None:
             raise TrackerError(f"{key} is in state {t.state!r}, which maps to no tracker.linear.states key")
+        if frm == to_key:  # a rebuild re-ships a ticket that is already there
+            return
         check_move(self.cfg, frm, to_key)
         name = self.lin["states"][to_key]
         nodes = self.post(Q_STATES, {"filter": {"team": {"key": {"eq": self.lin["team"]}}, "name": {"eq": name}}})["workflowStates"]["nodes"]

@@ -163,6 +163,11 @@ class LinearTests(unittest.TestCase):
         with self.assertRaises(base.TrackerError):
             linear.LinearTracker(CFG, post=fake).link_pr("ENG-1", url)
 
+    def test_transition_to_the_current_state_is_a_no_op(self):
+        fake = FakeLinear([{"issue": issue("ENG-1", ["shopfloor"], state="In Review")}])
+        linear.LinearTracker(CFG, post=fake).transition("ENG-1", "review")
+        self.assertEqual(len(fake.calls), 1)
+
     def test_link_pr_uses_attachment_link_url(self):
         fake = FakeLinear([{"issue": issue("ENG-1")}, {"attachmentLinkURL": {"success": True}}])
         linear.LinearTracker(CFG, post=fake).link_pr("ENG-1", "https://github.com/o/r/pull/1")
