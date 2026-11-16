@@ -102,6 +102,20 @@ class Unit(unittest.TestCase):
         crewfs.remove_tree(self.root, "deep")
         self.assertFalse((self.root / "deep").exists())
 
+    def test_remove_tree_gives_up_on_a_tree_that_keeps_growing(self):
+        real, made = os.listdir, [0]
+
+        def growing(fd):
+            made[0] += 1
+            os.mkdir(f"n{made[0]}", dir_fd=fd)  # a crew adding a folder each time sf looks
+            return real(fd)
+        (self.root / "grow").mkdir()
+        with mock.patch.object(crewfs, "REMOVE_MAX_ENTRIES", 500), mock.patch.object(crewfs.os, "listdir", growing):
+            with self.assertRaisesRegex(crewfs.CrewFsError, "more than 500 entries"):
+                crewfs.remove_tree(self.root, "grow")
+        crewfs.remove_tree(self.root, "grow")  # once it stops growing, it goes
+        self.assertFalse((self.root / "grow").exists())
+
     def test_write_creates_exclusively_and_replaces_a_planted_link(self):
         target = self.outside / "b" / "f.txt"
         (self.root / "a" / "out").symlink_to(target)

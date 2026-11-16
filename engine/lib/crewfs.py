@@ -170,18 +170,27 @@ def _ident(fd: int) -> tuple:
     return st.st_dev, st.st_ino
 
 
+REMOVE_MAX_ENTRIES = 200_000
+
+
 def _remove(d: int, name: str, what: str) -> None:
     """No recursion and one open folder at a time, so neither the stack nor the fd limit bounds the depth. Going
-    back up opens ".." and checks it is the folder we came down from, so a tree moved mid-walk is refused."""
+    back up opens ".." and checks it is the folder we came down from, so a tree moved mid-walk is refused. It
+    gives up after REMOVE_MAX_ENTRIES entries, so a crew that keeps adding to the tree can't keep sf here."""
     if not stat.S_ISDIR(os.stat(name, dir_fd=d, follow_symlinks=False).st_mode):
         os.unlink(name, dir_fd=d)
         return
     trail: list[tuple[str, tuple]] = []  # (name, identity) of each folder above the current one
     cur, fd = name, _down(d, name, what)
+    visited = 0
     try:
         while True:
             sub = None
             for child in os.listdir(fd):
+                visited += 1
+                if visited > REMOVE_MAX_ENTRIES:
+                    raise CrewFsError(f"{what} has more than {REMOVE_MAX_ENTRIES} entries, or keeps growing while "
+                                      "it is removed; gave up")
                 if stat.S_ISDIR(os.stat(child, dir_fd=fd, follow_symlinks=False).st_mode):
                     sub = sub or child
                 else:
