@@ -33,7 +33,7 @@ The owner did not write this code and needs to understand it fast. Write `<dir>/
 - `verify`: how to check it
 - `files`: the files changed
 - `prs`: objects with `repo`, `number`, `url`
-- `diagram`: a Mermaid diagram of the changed path
+- `diagram`: a Mermaid diagram of the changed path. Put every node label in double quotes, `A["divide(a, b)"]` not `A[divide(a, b)]`: unquoted brackets, parentheses or braces break the diagram
 - `size`: `small` or `full`
 
 Title only from the ticket, no secrets, no personal data. Never put the briefing in the PR description. Then `sf briefing write <KEY> <dir>/briefing-draft.json` and `sf briefing url <KEY>`. `sf` validates the draft and writes `briefing.json` itself; never write `briefing.json` directly.

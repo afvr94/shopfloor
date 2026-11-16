@@ -40,6 +40,7 @@ h1{font-size:22px;margin:0 0 4px;line-height:1.3}h2{font-size:15px;color:var(--m
 section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:12px}
 section.risk{border-color:var(--risk)}p{margin:0}ul,ol{margin:0;padding-left:20px}
 pre.mermaid{background:transparent;margin:0;overflow-x:auto;text-align:center}
+pre.diagram-source{margin:0;overflow-x:auto}
 """
 
 _MERMAID = '<script src="/static/mermaid.min.js"></script><script src="/static/mermaid-init.js"></script>'
