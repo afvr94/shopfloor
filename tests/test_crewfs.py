@@ -127,7 +127,7 @@ class Probes(unittest.TestCase):
         self.tk = paths.ticket_dir("crew", "ABC-1")
         self.secret = self.root / "outside" / "creds.json"
         self.secret.parent.mkdir()
-        self.secret.write_text('{"auths": {"registry": {"auth": "SECacmeB64"}}, "title": "SECacmeB64"}')
+        self.secret.write_text('{"token": "OUTSIDE-SECRET", "title": "OUTSIDE-SECRET"}')
 
     def push(self):
         return base.GitFlow(self.cfg).push("ABC-1", "app")
@@ -153,7 +153,7 @@ class Probes(unittest.TestCase):
         (self.tk / "state.json").symlink_to(self.secret)
         (self.tk / "briefing.json").symlink_to(self.secret)
         t = state.load_ticket("crew", "ABC-1")
-        self.assertNotIn("auths", t)
+        self.assertNotIn("token", t)
         self.assertNotIn("SECRET", json.dumps(state.list_tickets("crew")))
         self.assertIsNone(board_state.briefing_data("crew", "ABC-1"))
         (self.tk / "briefing-draft.json").symlink_to(self.secret)
