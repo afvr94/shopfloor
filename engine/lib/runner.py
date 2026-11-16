@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from . import config, paths, state
+from .redact import redact
 
 HEARTBEAT_SECS = 60
 KILL_GRACE_SECS = 10
@@ -46,6 +47,20 @@ def claude_invocation(crew_id: str, prompt: str) -> tuple[list[str], dict]:
     return argv, env
 
 
+def claude_cwd(crew_id: str):
+    """Working dir for every crew claude session; the sandbox grants writes here, so never the repo root."""
+    d = paths.worktrees_dir(crew_id)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _killpg(pid: int, sig: int) -> None:
+    try:
+        os.killpg(pid, sig)
+    except ProcessLookupError:
+        pass
+
+
 def status(crew_id: str) -> dict | None:
     return state.read_lock(_lock_path(crew_id))
 
@@ -64,16 +79,20 @@ def _build_one(crew_id: str, key: str, max_minutes: float) -> None:
     logs.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     with open(logs / f"build-{crew_id}-{key}-{ts}.log", "wb") as log:
-        proc = subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-                                cwd=paths.REPO_ROOT, start_new_session=True)
+        try:
+            proc = subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                                    cwd=claude_cwd(crew_id), start_new_session=True)
+        except OSError as e:
+            state.log_run(crew_id, key, f"build failed (could not start claude: {redact(str(e))})")
+            return
         try:
             code = proc.wait(timeout=max_minutes * 60)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGTERM)
+            _killpg(proc.pid, signal.SIGTERM)
             try:
                 proc.wait(timeout=KILL_GRACE_SECS)
             except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
+                _killpg(proc.pid, signal.SIGKILL)
                 proc.wait()
             state.log_run(crew_id, key, "build timed out")
             return

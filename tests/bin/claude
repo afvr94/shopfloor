@@ -2,6 +2,7 @@
 # Fake claude for runner tests. FAKE_CLAUDE_OUT is a path prefix for recorded pid/argv/env.
 if [ -n "$FAKE_CLAUDE_OUT" ]; then
   echo "$$" > "$FAKE_CLAUDE_OUT.pid"
+  [ -n "$FAKE_CLAUDE_CWD" ] && pwd -P > "$FAKE_CLAUDE_OUT.cwd"
   printf '%s\n' "$@" > "$FAKE_CLAUDE_OUT.argv"
   env > "$FAKE_CLAUDE_OUT.env"
 fi

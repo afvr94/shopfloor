@@ -68,6 +68,35 @@ class RunnerTest(unittest.TestCase):
         argv = Path(self.home, "fake.argv").read_text().splitlines()
         self.assertEqual(argv[:3], ["-p", "/shopfloor:build ENG-1", "--plugin-dir"])
 
+    def test_build_runs_in_worktrees_dir(self):
+        with mock.patch.dict(os.environ, {"FAKE_CLAUDE_SLEEP": "0", "FAKE_CLAUDE_CWD": "1"}):
+            runner.run_builds("demo", ["ENG-1"])
+        self.assertEqual(Path(self.home, "fake.cwd").read_text().strip(),
+                         str(paths.worktrees_dir("demo").resolve()))
+
+    def test_missing_claude_logs_failure_and_other_keys_finish(self):
+        empty = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, empty, True)
+        with mock.patch.dict(os.environ, {"PATH": empty}):
+            runner.run_builds("demo", ["ENG-1", "ENG-2"])
+        res = self.results()
+        self.assertEqual(len(res), 2)
+        self.assertTrue(all(r.startswith("build failed (could not start claude:") for r in res), res)
+        self.assertFalse(self.lock().exists())
+
+    def test_timeout_logged_when_group_already_gone(self):
+        self.cfg = cfg(minutes=0.01)
+        real = os.killpg
+
+        def kill_then_vanish(pid, sig):
+            real(pid, sig)
+            raise ProcessLookupError
+
+        with mock.patch.dict(os.environ, {"FAKE_CLAUDE_SLEEP": "30"}), \
+                mock.patch.object(runner.os, "killpg", kill_then_vanish):
+            runner.run_builds("demo", ["ENG-1"])
+        self.assertEqual(self.results(), ["build timed out"])
+
     def test_runs_up_to_max_parallel_at_once(self):
         with mock.patch.dict(os.environ, {"FAKE_CLAUDE_SLEEP": "0.5"}):
             t = time.monotonic()
