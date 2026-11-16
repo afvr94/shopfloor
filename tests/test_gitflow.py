@@ -8,7 +8,7 @@ from unittest import mock
 
 from engine.adapters import gitflow
 from engine.adapters.gitflow import base
-from engine.lib import paths, worktrees
+from engine.lib import paths, state, transport, worktrees
 from engine.lib.proc import ProcError
 from tests.gitrepo import IDENT, commit_file, git, make_repo, tmpdir
 
@@ -52,10 +52,19 @@ class GitFlowCase(unittest.TestCase):
         self.addCleanup(g.stop)
         self.pf = gitflow.make_gitflow(self.cfg)
 
+    def ticket_clone(self, key="ABC-1", branch="shopfloor/abc-1-x"):
+        state.save_ticket("crew", key, branch=branch)
+        return worktrees.prepare(self.cfg, key, "app", branch)
+
+    def hand_over(self, d, key="ABC-1", *refs):
+        """What the crew does in its sandbox before sf push: bundle its branch into the ticket folder."""
+        git(d, "bundle", "create", str(paths.ticket_dir("crew", key) / "out-app.bundle"), *(refs or ["HEAD"]))
+
     def work(self, branch="shopfloor/abc-1-x", fname="f.txt", text="x\n"):
-        d = worktrees.prepare(self.cfg, "ABC-1", "app", branch)
+        d = self.ticket_clone(branch=branch)
         commit_file(d, fname, text)
-        git(d, "push", "-u", "origin", branch)
+        self.hand_over(d, "ABC-1", branch)
+        self.pf.push("ABC-1", "app")
         return d
 
 
@@ -77,53 +86,94 @@ class TestChecks(unittest.TestCase):
 
 class TestShip(GitFlowCase):
     def test_ship_pushes_and_opens_pr_once(self):
-        d = self.work()
+        d = self.ticket_clone()
+        commit_file(d, "f.txt", "x\n")
+        self.hand_over(d, "ABC-1", "shopfloor/abc-1-x")
         self.gh.answers = {"pr list": "[]", "pr create": "https://github.com/o/app/pull/5\n"}
-        url = self.pf.ship("ABC-1", "app", d, "T", "body")
+        url = self.pf.ship("ABC-1", "app", "T", "body")
         self.assertEqual(url, "https://github.com/o/app/pull/5")
-        self.assertIn("shopfloor/abc-1-x", git(self.origin, "branch", "--list"))
+        self.assertEqual(git(self.origin, "rev-parse", "shopfloor/abc-1-x"), git(d, "rev-parse", "HEAD"))
         create = [c for c in self.gh.calls if c[:2] == ["pr", "create"]][0]
         self.assertIn("--body-file", create)
         self.assertNotIn("body", create)
         self.gh.answers = {"pr list": json.dumps([{"url": "https://github.com/o/app/pull/5"}])}
         self.gh.calls.clear()
-        self.assertEqual(self.pf.ship("ABC-1", "app", d, "T", "body"), "https://github.com/o/app/pull/5")
+        self.assertEqual(self.pf.ship("ABC-1", "app", "T", "body"), "https://github.com/o/app/pull/5")
         self.assertEqual([c for c in self.gh.calls if c[:2] == ["pr", "create"]], [])
 
     def test_ship_lookup_failure_does_not_create_duplicate(self):
-        d = self.work()
+        self.work()
         self.gh.answers = {"pr list": ProcError(["gh"], 1, "boom")}
         with self.assertRaises(base.GitFlowError):
-            self.pf.ship("ABC-1", "app", d, "T", "b")
+            self.pf.ship("ABC-1", "app", "T", "b")
         self.assertEqual([c for c in self.gh.calls if c[:2] == ["pr", "create"]], [])
 
     def test_ship_empty_create_output_raises(self):
-        d = self.work()
+        self.work()
         self.gh.answers = {"pr list": "[]", "pr create": "\n"}
         with self.assertRaises(base.GitFlowError):
-            self.pf.ship("ABC-1", "app", d, "T", "b")
+            self.pf.ship("ABC-1", "app", "T", "b")
 
-    def test_ship_refuses_protected_and_base(self):
-        git(self.clone, "checkout", "-b", "parked")
-        for b in ("staging", "main"):
-            d = worktrees.prepare(self.cfg, "ABC-2", "app", f"shopfloor/{b}-x")
-            git(d, "checkout", "-B", b)
-            with self.assertRaises(base.GitFlowError):
-                self.pf.ship("ABC-2", "app", d, "T", "b")
+    def test_ship_refuses_protected_base_and_non_ticket_branches(self):
+        for b in ("staging", "main", "feature/x", "shopfloor", "shopfloor/", "shopfloor/a..b", "shopfloor/a b",
+                  "xshopfloor/a", ""):
+            state.save_ticket("crew", "ABC-2", branch=b)
+            with self.subTest(b), mock.patch.object(transport, "push") as push, \
+                    self.assertRaises(base.GitFlowError):
+                self.pf.ship("ABC-2", "app", "T", "b")
+            push.assert_not_called()
         self.assertEqual(self.gh.calls, [])
 
-    def test_ship_refuses_non_ticket_branches(self):
-        d = worktrees.prepare(self.cfg, "ABC-2", "app", "shopfloor/abc-2-x")
-        for b in ("feature/x", "shopfloor", "shopfloor/", "shopfloor/a..b", "shopfloor/a b", "xshopfloor/a"):
-            calls = []
 
-            def fake(clone, *args, b=b, **k):
-                calls.append(args)
-                return b
-            with mock.patch.object(base.gitsafe, "git", side_effect=fake), self.assertRaises(base.GitFlowError):
-                self.pf.ship("ABC-2", "app", d, "T", "b")
-            self.assertFalse([c for c in calls if "push" in c], b)
-        self.assertEqual(self.gh.calls, [])
+class TestBundlePush(GitFlowCase):
+    def test_only_the_recorded_branch_is_pushed_from_a_bundle_carrying_more(self):
+        d = self.ticket_clone()
+        commit_file(d, "f.txt", "x\n")
+        git(d, "branch", "main", "-f", "HEAD")
+        git(d, "branch", "shopfloor/other")
+        self.hand_over(d, "ABC-1", "shopfloor/abc-1-x", "main", "shopfloor/other")
+        before = git(self.origin, "rev-parse", "main")
+        self.assertEqual(self.pf.push("ABC-1", "app"), "shopfloor/abc-1-x")
+        self.assertEqual(git(self.origin, "rev-parse", "shopfloor/abc-1-x"), git(d, "rev-parse", "HEAD"))
+        self.assertEqual(git(self.origin, "rev-parse", "main"), before)
+        self.assertNotIn("shopfloor/other", git(self.origin, "branch", "--list"))
+
+    def test_a_bundle_naming_another_branch_is_refused(self):
+        d = self.ticket_clone()
+        git(d, "checkout", "-q", "-b", "shopfloor/abc-1-y")
+        commit_file(d, "f.txt", "x\n")
+        self.hand_over(d, "ABC-1", "shopfloor/abc-1-y")
+        with self.assertRaises(base.GitFlowError) as ctx:
+            self.pf.push("ABC-1", "app")
+        self.assertIn("does not carry shopfloor/abc-1-x", str(ctx.exception))
+        self.assertEqual(git(self.origin, "branch", "--list", "shopfloor/*"), "")
+
+    def test_a_symlinked_or_missing_bundle_is_refused(self):
+        self.ticket_clone()
+        out = paths.ticket_dir("crew", "ABC-1") / "out-app.bundle"
+        with self.assertRaises(base.GitFlowError):
+            self.pf.push("ABC-1", "app")
+        out.symlink_to(paths.crew_config_path("crew"))
+        with self.assertRaises(OSError):
+            self.pf.push("ABC-1", "app")
+
+    def test_lease_is_what_transport_last_saw_on_origin(self):
+        d = self.work()
+        other = Path(self.tmp.name) / "other"
+        git(self.tmp.name, "clone", "-q", "-b", "shopfloor/abc-1-x", str(self.origin), str(other))
+        commit_file(other, "theirs.txt", "t\n")
+        git(other, "push", "-q", "origin", "shopfloor/abc-1-x")
+        theirs = git(self.origin, "rev-parse", "shopfloor/abc-1-x")
+        commit_file(d, "mine.txt", "m\n")
+        self.hand_over(d, "ABC-1", "shopfloor/abc-1-x")
+        with mock.patch.object(transport.gitsafe, "run", wraps=transport.gitsafe.run) as run, \
+                self.assertRaises(base.GitFlowError):
+            self.pf.push("ABC-1", "app")
+        seen = transport.sha(self.cfg, "app", "refs/heads/shopfloor/abc-1-x")
+        (push,) = [c.args[0] for c in run.call_args_list if "push" in c.args[0]]
+        self.assertIn(f"--force-with-lease=refs/heads/shopfloor/abc-1-x:{seen}", push)
+        self.assertNotEqual(seen, theirs)
+        self.assertEqual(git(self.origin, "rev-parse", "shopfloor/abc-1-x"), theirs)
 
 
 class TestPrOnly(GitFlowCase):
@@ -201,7 +251,8 @@ class TestMergeToTest(GitFlowCase):
         out = self.pf.merge("ABC-1", "app", self.pr())
         self.assertRegex(out, r"^merged shopfloor/abc-1-x into staging at [0-9a-f]{7}$")
         self.assertEqual(len(git(self.origin, "rev-list", "--parents", "-n1", "staging").split()), 3)
-        self.assertTrue((paths.worktrees_dir("crew") / "_test" / "app" / ".git").is_dir())
+        self.assertTrue((paths.crew_state_dir("crew") / "merge" / "app" / ".git").is_dir())
+        self.assertFalse((paths.worktrees_dir("crew") / "_test").exists())
         self.assertEqual(self.gh.calls, [])
 
     def test_merge_to_test_branch_conflict_aborts(self):
@@ -216,7 +267,7 @@ class TestMergeToTest(GitFlowCase):
             self.pf.merge("ABC-1", "app", self.pr())
         self.assertIn("README", str(ctx.exception))
         self.assertEqual(git(self.origin, "rev-parse", "staging"), before)
-        self.assertEqual(git(paths.worktrees_dir("crew") / "_test" / "app", "status", "--porcelain"), "")
+        self.assertEqual(git(paths.crew_state_dir("crew") / "merge" / "app", "status", "--porcelain"), "")
 
 
 if __name__ == "__main__":

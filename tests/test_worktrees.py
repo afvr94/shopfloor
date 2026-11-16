@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from engine.lib import gitsafe, paths, worktrees
+from engine.lib import gitsafe, paths, transport, worktrees
 from tests.gitrepo import commit_file, git, make_repo, tmpdir, IDENT
 
 
@@ -34,103 +34,55 @@ class TestBranchName(unittest.TestCase):
 
 
 class TestPrepare(WorktreeCase):
-    def test_prepare_creates_from_origin_base_and_is_idempotent(self):
+    def bundle(self):
+        return paths.ticket_dir("crew", "ABC-1") / "in-app.bundle"
+
+    def test_prepare_clones_from_a_bundle_onto_the_ticket_branch_with_no_reachable_origin(self):
         d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
         self.assertEqual(d, self.wt())
+        self.assertTrue((d / ".git").is_dir())
         self.assertEqual(git(d, "rev-parse", "--abbrev-ref", "HEAD"), "shopfloor/abc-1-x")
+        self.assertEqual(git(d, "rev-parse", "HEAD"), git(self.origin, "rev-parse", "main"))
+        self.assertEqual(git(d, "remote", "get-url", "origin"), transport.NO_REMOTE)
+        self.assertNotIn(str(d), git(self.clone, "worktree", "list"))
+        self.assertIn("refs/heads/main", git(d, "bundle", "list-heads", str(self.bundle())))
+
+    def test_prepare_leaves_an_existing_clone_alone_and_refreshes_the_bundle(self):
+        d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
         (d / "wip.txt").write_text("keep")
-        self.assertEqual(worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x"), d)
+        git(d, "config", "core.editor", "vi")
+        commit_file(self.clone, "new.txt", "n\n")
+        git(self.clone, "push", "-q", "origin", "main")
+        with mock.patch.object(gitsafe, "run", wraps=gitsafe.run) as run:
+            self.assertEqual(worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x"), d)
+        self.assertNotIn(str(d), " ".join(" ".join(map(str, c.args[0])) + str(c.kwargs.get("cwd")) for c in run.call_args_list))
         self.assertEqual((d / "wip.txt").read_text(), "keep")
+        git(d, "fetch", str(self.bundle()), "+refs/heads/*:refs/remotes/origin/*")
+        self.assertEqual(git(d, "rev-parse", "origin/main"), git(self.origin, "rev-parse", "main"))
 
     def test_prepare_attaches_existing_remote_branch(self):
         git(self.clone, "checkout", "-b", "shopfloor/abc-1-x")
         commit_file(self.clone, "f.txt", "remote\n")
         git(self.clone, "push", "origin", "shopfloor/abc-1-x")
-        git(self.clone, "checkout", "main")
-        git(self.clone, "branch", "-D", "shopfloor/abc-1-x")
         d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
         self.assertEqual((d / "f.txt").read_text(), "remote\n")
         self.assertEqual(git(d, "rev-parse", "--abbrev-ref", "@{u}"), "origin/shopfloor/abc-1-x")
+        self.assertIn("refs/heads/shopfloor/abc-1-x", git(d, "bundle", "list-heads", str(self.bundle())))
 
-    def test_prepare_moves_aside_a_repo_sf_did_not_make_without_running_git_in_it(self):
-        d = self.wt()
-        d.mkdir(parents=True)
-        git(d, "init", "-b", "main")
-        commit_file(d, "a.txt", "a\n")
-        (d / "junk.txt").write_text("x")
-        out = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
-        self.assertFalse((out / "junk.txt").exists())
-        self.assertEqual(git(out, "rev-parse", "--abbrev-ref", "HEAD"), "shopfloor/abc-1-x")
-        self.assertEqual(list(paths.ticket_dir("crew", "ABC-1").glob("salvage-app-*.patch")), [])
-        (aside,) = paths.ticket_dir("crew", "ABC-1").glob("salvage-app-*")
-        self.assertEqual((aside / "junk.txt").read_text(), "x")
-
-    def test_prepare_refuses_a_clone_whose_config_changed(self):
-        d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
-        git(d, "config", "core.editor", "vi")
-        with self.assertRaises(gitsafe.ConfigChanged):
-            worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
-        self.assertTrue((d / ".git").is_dir())
-
-    def test_prepare_moves_aside_non_git_leftover(self):
-        d = self.wt()
-        d.mkdir(parents=True)
-        (d / "junk.txt").write_text("x")
-        out = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
-        self.assertFalse((out / "junk.txt").exists())
-        (aside,) = paths.ticket_dir("crew", "ABC-1").glob("salvage-app-*")
-        self.assertEqual((aside / "junk.txt").read_text(), "x")
-
-    def test_prepare_keeps_unpushed_local_commits(self):
-        git(self.clone, "checkout", "-b", "shopfloor/abc-1-x")
-        git(self.clone, "push", "origin", "shopfloor/abc-1-x")
-        commit_file(self.clone, "local.txt", "unpushed\n")
-        git(self.clone, "checkout", "main")
-        d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
-        self.assertEqual((d / "local.txt").read_text(), "unpushed\n")
-
-    def test_prepare_replaces_worktree_on_wrong_branch_and_saves_changes(self):
-        d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/old")
-        (d / "new.txt").write_text("precious\n")
-        out = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
-        self.assertEqual(git(out, "rev-parse", "--abbrev-ref", "HEAD"), "shopfloor/abc-1-x")
-        (patch,) = paths.ticket_dir("crew", "ABC-1").glob("salvage-app-*.patch")
-        self.assertIn("precious", patch.read_text())
-
-    def test_prepare_makes_a_full_clone_pointing_at_the_real_origin(self):
-        d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
-        self.assertTrue((d / ".git").is_dir())
-        self.assertEqual(git(d, "remote", "get-url", "origin"), str(self.origin))
-        self.assertNotIn(str(d), git(self.clone, "worktree", "list"))
-        self.assertEqual(git(d, "rev-parse", "HEAD"), git(self.clone, "rev-parse", "origin/main"))
-
-    def test_prepare_carries_unpushed_branch_checked_out_in_main(self):
-        git(self.clone, "checkout", "-b", "shopfloor/abc-1-x")
-        commit_file(self.clone, "local.txt", "unpushed\n")
-        d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
-        self.assertEqual((d / "local.txt").read_text(), "unpushed\n")
-
-    def test_prepare_keeps_clone_with_unpushed_commits_on_wrong_branch(self):
-        d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/old")
-        commit_file(d, "mine.txt", "only here\n")
+    def test_prepare_never_writes_through_a_planted_symlink(self):
+        target = Path(self.tmp.name) / "victim"
+        target.write_text("keep")
+        tdir = paths.ticket_dir("crew", "ABC-1")
+        tdir.mkdir(parents=True, exist_ok=True)
+        self.bundle().symlink_to(target)
         worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
-        asides = [p for p in paths.ticket_dir("crew", "ABC-1").glob("salvage-app-*") if p.is_dir()]
-        self.assertEqual(len(asides), 1)
-        self.assertEqual((asides[0] / "mine.txt").read_text(), "only here\n")
-
-    def test_prepare_replaces_old_git_worktree_layout(self):
-        d = self.wt()
-        d.parent.mkdir(parents=True)
-        git(self.clone, "worktree", "add", "-b", "shopfloor/abc-1-x", str(d), "origin/main")
-        out = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
-        self.assertTrue((out / ".git").is_dir())
-        self.assertNotIn(str(d), git(self.clone, "worktree", "list"))
+        self.assertEqual(target.read_text(), "keep")
+        self.assertFalse(self.bundle().is_symlink())
 
     def test_remove(self):
         d = worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
         worktrees.remove(self.cfg, "ABC-1")
         self.assertFalse(d.exists())
-        self.assertNotIn(str(d), git(self.clone, "worktree", "list"))
         worktrees.remove(self.cfg, "ABC-1")  # none left: still fine
 
 

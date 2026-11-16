@@ -1,120 +1,72 @@
-"""Every git call sf makes in a ticket clone goes through here.
+"""Every git command sf runs goes through git() here.
 
-sf runs outside the sandbox, but sandboxed code can write a clone's .git. So git runs with hooks, fsmonitor,
-pagers, ssh commands, credential helpers and ext:: transports pinned from the command line, and the clone's
-.git/config must still match what sf recorded when it made the clone.
+sf runs outside the sandbox, so it never runs git, or anything that reads git config, inside a directory a crew
+can write: a repo there could redirect git through its own .git (config, commondir, a parent repo) and run code
+as sf. git() refuses such a directory as its target or as a path argument. The places it does run are sf's own:
+the transport repos and merge copies under the crew state dir, private scratch dirs there, and the owner's
+checkout. Hooks, fsmonitor, pagers, ssh commands, credential helpers and ext:: transports are pinned on the
+command line all the same.
 """
 from __future__ import annotations
 
-import hashlib
 import os
-import re
 from pathlib import Path
 
-from . import state
-from .proc import ProcError, run
+from . import paths
+from .proc import run
 
-# git writes these during ordinary branch work; sf never reads them, so they may change
-_MUTABLE = re.compile(r"branch\..+\.(remote|merge)|user\.(name|email)")
 _NO_VERIFY = {"push", "commit", "merge"}
+_CREW_DIRS = {"worktrees", "tickets"}
 
 
-class ConfigChanged(Exception):
+class CrewWritable(Exception):
     pass
 
 
-def _env() -> dict:
-    return {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0"}
+def crew_writable(p) -> bool:
+    """True for any path inside some crew's worktrees or tickets folder, compared as macOS does (any case)."""
+    real = os.path.realpath(p).casefold()
+    state = os.path.realpath(paths.shopfloor_home() / "state").casefold().rstrip("/") + "/"
+    if not real.startswith(state):
+        return False
+    parts = real[len(state):].split("/")
+    return len(parts) > 1 and parts[1] in _CREW_DIRS
+
+
+def _refuse(p) -> None:
+    if crew_writable(p):
+        raise CrewWritable(f"sf never runs git in or on {p}: crews can write there")
 
 
 def flags() -> list[str]:
     # read from "/" so no repo config takes part; the user's own global helper keeps HTTPS pushes working
-    helpers = run(["git", "config", "--global", "--get-all", "credential.helper"], cwd="/", env=_env(),
-                  check=False).splitlines()
+    helpers = run(["git", "config", "--global", "--get-all", "credential.helper"], cwd="/",
+                  env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1"}, check=False).splitlines()
     pinned = ["core.hooksPath=/dev/null", "core.fsmonitor=false", "core.sshCommand=ssh", "credential.helper=",
               *(f"credential.helper={h}" for h in helpers if h), "core.pager=cat", "protocol.ext.allow=never",
               "submodule.recurse=false", "fetch.recurseSubmodules=false"]
     return [x for kv in pinned for x in ("-c", kv)]
 
 
-def raw(cwd, *args: str, check: bool = True) -> str:
-    """git with the pinned flags but no config check: for the main checkout and clones sf is still building."""
+def git(where, *args: str, bare: bool = False, local: bool = False, check: bool = True) -> str:
+    """git in `where`, an sf-only directory: a bare repo when `bare` (GIT_DIR is set, nothing is discovered),
+    else a work tree, a repo's parent or the owner's checkout. `local` drops the user's global config too, for
+    commands that only move data between sf's own repos and bundles."""
+    where = Path(where)
+    _refuse(where)
+    for a in args:
+        if a.startswith("/"):
+            _refuse(a)
     args = list(args)
     if args and args[0] in _NO_VERIFY and not {"--abort", "--continue", "--quit"} & set(args):
         args.insert(1, "--no-verify")
-    return run(["git", *flags(), "-C", str(cwd), *args], env=_env(), check=check).strip()
-
-
-def state_dir(clone: Path) -> Path:
-    """<state>/worktrees/<KEY>/<repo> -> <state>."""
-    clone = Path(clone)
-    if clone.parent.parent.name != "worktrees":
-        raise ValueError(f"{clone} is not a crew clone")
-    return clone.parent.parent.parent
-
-
-def _pin_path(clone: Path) -> Path:
-    clone = Path(clone)
-    return state_dir(clone) / "clones" / clone.parent.name / f"{clone.name}.sha256"
-
-
-def digest(clone: Path) -> str:
-    gitdir = Path(clone) / ".git"
-    cfg = gitdir / "config"
-    if gitdir.is_symlink() or not gitdir.is_dir() or cfg.is_symlink():
-        raise ConfigChanged(f"{clone}/.git is not a plain clone directory; refusing")
-    try:
-        # --file reads that file alone: includes are listed, never followed
-        out = run(["git", "config", "--file", str(cfg), "--list", "--null"], cwd="/", env=_env())
-    except ProcError as e:
-        raise ConfigChanged(f"can't read {cfg}: {e}") from None
-    kept = [e for e in out.split("\0") if e and not _MUTABLE.fullmatch(e.partition("\n")[0])]
-    return hashlib.sha256("\0".join(kept).encode()).hexdigest()
-
-
-def pin(clone: Path, value: str | None = None) -> None:
-    state.atomic_write(_pin_path(clone), (value or digest(clone)) + "\n")
-
-
-def unpin(clone: Path) -> None:
-    try:
-        _pin_path(clone).unlink()
-    except FileNotFoundError:
-        pass
-
-
-def pinned(clone: Path) -> bool:
-    return _pin_path(clone).is_file()
-
-
-def verify(clone: Path) -> None:
-    clone = Path(clone)
-    try:
-        want = _pin_path(clone).read_text().strip()
-    except FileNotFoundError:
-        raise ConfigChanged(f"sf has no record of {clone}; refusing to run git there") from None
-    try:
-        ok = digest(clone) == want
-    except ConfigChanged:
-        ok = False
-    if not ok:
-        state.log_run(state_dir(clone).name, clone.parent.name, "refused", "clone config changed; refusing")
-        raise ConfigChanged(f"clone config changed in {clone}; refusing to run git there. "
-                            f"Check {clone}/.git/config, then remove the clone so sf can make a fresh one")
-
-
-def git(clone: Path, *args: str, check: bool = True) -> str:
-    verify(clone)
-    return raw(clone, *args, check=check)
-
-
-def push(clone: Path, main: str, branch: str, force: bool = False) -> None:
-    """Push HEAD to <branch> at the main checkout's push URL; the clone's remote config plays no part."""
-    url = raw(main, "remote", "get-url", "--push", "origin")
-    lease = []
-    if force:
-        # a rebased ticket branch needs a force push; only over what sf last saw on origin
-        seen = git(clone, "rev-parse", "-q", "--verify", f"refs/remotes/origin/{branch}", check=False)
-        lease = [f"--force-with-lease=refs/heads/{branch}:{seen}"]
-    git(clone, "push", "--quiet", *lease, url, f"HEAD:refs/heads/{branch}")
-    git(clone, "update-ref", f"refs/remotes/origin/{branch}", "HEAD")
+    env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
+           "GIT_CEILING_DIRECTORIES": str(where.parent)}
+    for k in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+              "GIT_ALTERNATE_OBJECT_DIRECTORIES"):
+        env.pop(k, None)
+    if bare:
+        env["GIT_DIR"] = str(where)
+    if local:
+        env["GIT_CONFIG_GLOBAL"] = os.devnull
+    return run(["git", *flags(), *args], cwd=str(where), env=env, check=check).strip()

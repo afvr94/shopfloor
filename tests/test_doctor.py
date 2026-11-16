@@ -15,7 +15,7 @@ from unittest import mock
 from cli import doctor
 from engine.adapters.chat import make_chat
 from engine.adapters.tracker import make_tracker
-from engine.lib import paths, state
+from engine.lib import config, paths, state
 from engine.lib.proc import ProcError
 from engine.lib.proc import run as real_run
 from tests.fakes import FakeLinear, FakeSlack
@@ -104,7 +104,7 @@ class Doctor(unittest.TestCase):
             "tracker": lambda c: make_tracker(c, post=FakeLinear(linear_answer(label))),
             "chat": lambda c: make_chat(c, call=FakeSlack(slack_answer)),
             "health": lambda url: True,
-            "lsremote": lambda path, base: None,
+            "lsremote": lambda cfg, name: None,
         }
 
     def rows(self, **kw):
@@ -125,19 +125,22 @@ class Doctor(unittest.TestCase):
     def test_live_checks_origin_with_ls_remote(self):
         seen = []
         d = {**self.deps(), "smoke": lambda cid: None,
-             "lsremote": lambda path, base: seen.append((path, base)) or "origin has no main branch"}
+             "lsremote": lambda cfg, name: seen.append((cfg["id"], name)) or "origin has no main branch"}
         self.assertNotIn("demo: git ls-remote app", [n for _, n, _ in doctor.check_all("demo", d)])
         rows = doctor.check_all("demo", d, live=True)
-        self.assertEqual((self.failing(rows), seen), (["demo: git ls-remote app"], [(str(self.repo), "main")]))
+        self.assertEqual((self.failing(rows), seen), (["demo: git ls-remote app"], [("demo", "app")]))
 
-    def test_ls_remote_uses_the_pinned_git(self):
+    def test_ls_remote_runs_from_the_transport_repo(self):
         origin = self.tmp / "origin.git"
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
         subprocess.run(["git", "-C", str(self.repo), "remote", "set-url", "origin", str(origin)], check=True)
-        self.assertEqual(doctor.ls_remote(str(self.repo), "main"), "origin has no main branch")
-        with mock.patch.object(doctor.gitsafe, "raw", return_value="abc\trefs/heads/main") as raw:
-            self.assertIsNone(doctor.ls_remote(str(self.repo), "main"))
-        raw.assert_called_once_with(str(self.repo), "ls-remote", "--heads", "origin", "main")
+        cfg = config.load_crew("demo")
+        self.assertEqual(doctor.ls_remote(cfg, "app"), "origin has no main branch")
+        with mock.patch.object(doctor.gitsafe, "git", return_value="abc\trefs/heads/main") as g, \
+                mock.patch.object(doctor.transport, "ensure", return_value=Path("/t")):
+            self.assertIsNone(doctor.ls_remote(cfg, "app"))
+        g.assert_called_once_with(Path("/t"), "ls-remote", "--heads", "--upload-pack=git-upload-pack", "origin",
+                                  "main", bare=True)
 
     def test_live_smoke_checks_sandboxed_write_and_sf_write(self):
         def fake_run(argv, cwd, **kw):

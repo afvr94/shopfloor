@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from engine.lib import gitsafe, paths, worktrees
+import shutil
+
+from engine.lib import gitsafe, paths, transport
 from engine.lib.proc import ProcError
 
 from . import base
@@ -21,17 +23,20 @@ class MergeToTestBranch(GitFlow):
     def merge(self, key: str, repo_name: str, pr: dict) -> str:
         self._require_mergeable(repo_name, pr)
         test, head, oid = self.flow["testBranch"], pr["headRefName"], pr["headRefOid"]
-        main = self.cfg["repos"][repo_name]["path"]
-        wt = paths.worktrees_dir(self.crew) / "_test" / repo_name
+        # sf's own working copy, cloned from the transport repo; no crew can write here
+        wt = paths.crew_state_dir(self.crew) / "merge" / repo_name
 
         def g(*a: str, check: bool = True) -> str:
             return gitsafe.git(wt, *a, check=check)
 
         try:
-            if not (gitsafe.pinned(wt) and worktrees.is_clone(wt, main)):
-                worktrees.drop(wt, main)
-                worktrees.clone(main, wt)
-            g("fetch", "--prune", "origin")
+            transport.update(self.cfg, repo_name)
+            if not (wt / ".git").is_dir():
+                shutil.rmtree(wt, ignore_errors=True)
+                wt.parent.mkdir(parents=True, exist_ok=True)
+                gitsafe.git(wt.parent, "clone", "--quiet", "--no-checkout",
+                            str(transport.gitdir(self.crew, repo_name)), str(wt), local=True)
+            g("fetch", "--quiet", "--prune", "origin")
             g("checkout", "-f", "-B", test, f"origin/{test}")
             try:
                 g("merge", "--no-ff", oid, "-m", f"Merge {head} into {test} ({key})")
@@ -42,8 +47,9 @@ class MergeToTestBranch(GitFlow):
                     f"merge of {head} into {test} failed: {e.stderr.strip()[:200]}"
                     f" conflicts: {conflicts.replace(chr(10), ', ') or 'none listed'}"
                 ) from e
-            gitsafe.push(wt, main, test)
+            g("push", "--quiet", "origin", f"+HEAD:refs/crew/{test}")
+            transport.push(self.cfg, repo_name, test)
             sha = g("rev-parse", "--short=7", "HEAD")
-        except ProcError as e:
+        except (ProcError, transport.TransportError) as e:
             raise GitFlowError(str(e)) from e
         return self._log(key, f"merged {head} into {test} at {sha}")

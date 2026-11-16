@@ -14,7 +14,7 @@ from urllib.parse import quote
 from engine.adapters.chat import make_chat
 from engine.adapters.tracker import make_tracker
 from engine.hooks.guard import decide
-from engine.lib import config, gitsafe, paths, proc, runner, state
+from engine.lib import config, gitsafe, paths, proc, runner, state, transport
 from engine.lib.redact import redact
 
 Row = tuple[bool, str, str]
@@ -56,7 +56,7 @@ def _repo_rows(cid: str, cfg: dict, deps: dict) -> list[Row]:
     rows: list[Row] = []
     for name, r in cfg["repos"].items():
         def origin(r=r):
-            url = deps["run"](["git", "-C", r["path"], "remote", "get-url", "origin"]).strip()
+            url = gitsafe.git(r["path"], "remote", "get-url", "origin")
             if not re.search(rf"github\.com[:/]{re.escape(r['github'])}(\.git)?/?$", url, re.I):
                 return f"origin does not match {r['github']}"
         rows.append(_guarded(f"{cid}: repo {name}", origin))
@@ -103,9 +103,12 @@ def live_smoke(cid: str) -> str | None:
     return None
 
 
-def ls_remote(path: str, base: str) -> str | None:
-    """Reach origin with the same pinned git sf pushes with, outside any sandbox."""
-    return None if gitsafe.raw(path, "ls-remote", "--heads", "origin", base) else f"origin has no {base} branch"
+def ls_remote(cfg: dict, repo: str) -> str | None:
+    """Reach origin from the crew's transport repo, the one sf fetches and pushes through."""
+    base = cfg["repos"][repo]["base"]
+    out = gitsafe.git(transport.ensure(cfg, repo), "ls-remote", "--heads", "--upload-pack=git-upload-pack",
+                      "origin", base, bare=True)
+    return None if out else f"origin has no {base} branch"
 
 
 def _crew_rows(cid: str, deps: dict, live: bool = False) -> list[Row]:
@@ -128,8 +131,8 @@ def _crew_rows(cid: str, deps: dict, live: bool = False) -> list[Row]:
     missing = [d for d in ("worktrees", "tickets") if not (paths.crew_dir(cid) / d).is_dir()]
     rows.append((not missing, f"{cid}: crew dirs", f"missing {', '.join(missing)} (run shopfloor install)" if missing else ""))
     if live:
-        for name, r in cfg["repos"].items():
-            rows.append(_guarded(f"{cid}: git ls-remote {name}", lambda r=r: deps["lsremote"](r["path"], r["base"])))
+        for name in cfg["repos"]:
+            rows.append(_guarded(f"{cid}: git ls-remote {name}", lambda name=name: deps["lsremote"](cfg, name)))
         rows.append(_guarded(f"{cid}: live sandbox session", lambda: deps["smoke"](cid)))
     return rows
 

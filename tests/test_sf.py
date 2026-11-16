@@ -66,12 +66,12 @@ class FakeFlow:
         self.merged.append((key, repo))
         return "merged it"
 
-    def ship(self, key, repo, wt, title, body):
+    def ship(self, key, repo, title, body):
         self.body = body
         return "https://github.com/o/app/pull/7"
 
-    def push(self, repo, wt):
-        self.pushed = (repo, wt)
+    def push(self, key, repo):
+        self.pushed = (key, repo)
         return "shopfloor/eng-1-x"
 
 
@@ -400,17 +400,15 @@ class SfPrTest(SfCase):
         self.assertEqual(len(gh.bodies), 1)
 
     def test_push_dry_run_and_live(self):
-        (paths.worktrees_dir("demo") / "ENG-1" / "app").mkdir(parents=True)
         self.write_cfg(dryRun=True)
         code, out, _ = self.sf("push", "ENG-1", "app")
         self.assertTrue(out.startswith("dry-run: would push ENG-1's branch in app"), out)
         self.assertEqual(self.runs()[-1]["result"], "dry-run")
         self.write_cfg(dryRun=False)
         self.assertEqual(self.sf("push", "ENG-1", "app")[1].strip(), "pushed shopfloor/eng-1-x")
-        self.assertEqual(self.flow.pushed[0], "app")
+        self.assertEqual(self.flow.pushed, ("ENG-1", "app"))
 
     def test_ship_redacts_the_pr_body(self):
-        (paths.worktrees_dir("demo") / "ENG-1" / "app").mkdir(parents=True)
         f = self.dir / "pr-body.md"
         f.write_text(f"body {TOKEN}")
         self.sf("ship", "ENG-1", "app", "--title", "t", "--body-file", str(f))
@@ -458,35 +456,35 @@ class SfGitTest(unittest.TestCase):
 
     sf = SfCase.sf
 
-    def test_push_pushes_the_ticket_branch_and_refuses_others(self):
+    def test_push_takes_the_recorded_branch_from_the_out_bundle(self):
         from tests.gitrepo import commit_file, git
         commit_file(self.wt, "f.txt", "x\n")
+        out = paths.ticket_dir("demo", "ENG-1") / "out-app.bundle"
+        git(self.wt, "bundle", "create", str(out), "shopfloor/eng-1-x")
         self.assertEqual(self.sf("push", "ENG-1", "app")[:2], (0, "pushed shopfloor/eng-1-x\n"))
         self.assertEqual(git(self.origin, "rev-parse", "shopfloor/eng-1-x"), git(self.wt, "rev-parse", "HEAD"))
-        git(self.wt, "checkout", "-q", "-b", "feature/x")
+        state.save_ticket("demo", "ENG-1", branch="feature/x")
         code, _, err = self.sf("push", "ENG-1", "app")
         self.assertEqual(code, 1)
         self.assertIn("refusing to push feature/x", err)
 
-    def test_sync_rebases_and_reports_conflicts(self):
+    def test_sync_hands_origin_over_as_a_bundle(self):
         from tests.gitrepo import commit_file, git
         commit_file(self.wt, "mine.txt", "mine\n")
         commit_file(self.main, "theirs.txt", "theirs\n")
         git(self.main, "push", "-q", "origin", "main")
-        self.assertEqual(self.sf("sync", "ENG-1", "app")[:2], (0, "rebased onto origin/main\n"))
+        code, out, _ = self.sf("sync", "ENG-1", "app")
+        bundle = paths.ticket_dir("demo", "ENG-1") / "in-app.bundle"
+        self.assertEqual(code, 0)
+        self.assertIn(f"git fetch {bundle} '+refs/heads/*:refs/remotes/origin/*'", out)
+        git(self.wt, "fetch", str(bundle), "+refs/heads/*:refs/remotes/origin/*")
+        git(self.wt, "rebase", "origin/main")
         self.assertTrue((self.wt / "theirs.txt").exists())
-        commit_file(self.wt, "README", "mine\n")
-        commit_file(self.main, "README", "theirs\n")
-        git(self.main, "push", "-q", "origin", "main")
-        code, _, err = self.sf("sync", "ENG-1", "app")
-        self.assertEqual(code, 1)
-        self.assertIn("conflicts in: README", err)
-        self.assertEqual(git(self.wt, "status", "--porcelain"), "")
+        self.assertTrue((self.wt / "mine.txt").exists())
 
-    def test_changed_clone_config_is_refused(self):
+    def test_prepare_records_the_branch_and_keeps_an_existing_clone(self):
         from tests.gitrepo import git
+        self.assertEqual(state.load_ticket("demo", "ENG-1")["branch"], "shopfloor/eng-1-x")
         git(self.wt, "config", "core.pager", "less")
-        code, _, err = self.sf("sync", "ENG-1", "app")
-        self.assertEqual(code, 1)
-        self.assertIn("clone config changed", err)
-        self.assertEqual(state.recent_runs("demo")[-1]["note"], "clone config changed; refusing")
+        code, out, _ = self.sf("worktree", "prepare", "ENG-1", "app")
+        self.assertEqual((code, out.strip()), (0, str(self.wt)))

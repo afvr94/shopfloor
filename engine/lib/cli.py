@@ -15,7 +15,7 @@ from engine.adapters.gitflow import make_gitflow
 from engine.adapters.gitflow.base import GitFlowError, pr_info
 from engine.adapters.tracker import make_tracker
 from engine.adapters.tracker.base import TrackerError, state_key
-from engine.lib import briefing, config, gitsafe, lessons, paths, state, worktrees
+from engine.lib import briefing, config, gitsafe, lessons, paths, state, transport, worktrees
 from engine.lib.commands import CommandQueue, CommandQueueError
 from engine.lib.proc import ProcError
 from engine.lib.redact import redact
@@ -26,7 +26,8 @@ WRITE_COMMANDS = {("tracker", "transition"), ("tracker", "comment"), ("tracker",
                   ("ship", ""), ("merge", ""), ("push", ""), ("pr", "reply")}
 
 _ERRORS = (TrackerError, ChatError, GitFlowError, briefing.BriefingError, lessons.LessonError,
-           config.ConfigError, CommandQueueError, ProcError, gitsafe.ConfigChanged, ValueError, OSError)
+           config.ConfigError, CommandQueueError, ProcError, gitsafe.CrewWritable, transport.TransportError,
+           ValueError, OSError)
 
 
 class Refused(Exception):
@@ -80,14 +81,6 @@ def _crew_file(cfg: dict, path: str) -> str:
                 _under(real, [os.path.realpath(x) for x in config.secret_paths(cfg)]):
             raise Refused(f"sf reads text only from the crew's worktrees, tickets or temp dirs, not {path}")
         return f.read()
-
-
-def _clone(cfg: dict, key: str, repo: str):
-    paths.ticket_dir(cfg["id"], key)  # validates the key
-    wt = paths.worktrees_dir(cfg["id"]) / key / repo
-    if not wt.is_dir():
-        raise Refused(f"no worktree for {key} in {repo}; run sf worktree prepare")
-    return wt
 
 
 def _thread(cfg: dict, key: str) -> ThreadRef:
@@ -261,8 +254,7 @@ def h_ship(a, cfg):
     _repo(cfg, a.repo)
     if _dry(cfg, a.key, f"open a PR for {a.key} in {a.repo}"):
         return
-    wt = _clone(cfg, a.key, a.repo)
-    url = _make("gitflow", cfg).ship(a.key, a.repo, wt, a.title, redact(_crew_file(cfg, a.body_file)))
+    url = _make("gitflow", cfg).ship(a.key, a.repo, a.title, redact(_crew_file(cfg, a.body_file)))
     m = re.search(r"/pull/(\d+)", url)
     if not m:
         raise Refused(f"could not read a PR number from {url}")
@@ -272,28 +264,27 @@ def h_ship(a, cfg):
 
 
 def h_push(a, cfg):
+    """Push the ticket branch the crew bundled into <dir>/out-<repo>.bundle."""
     _repo(cfg, a.repo)
-    wt = _clone(cfg, a.key, a.repo)
     if _dry(cfg, a.key, f"push {a.key}'s branch in {a.repo}"):
         return
-    branch = _make("gitflow", cfg).push(a.repo, wt)
+    branch = _make("gitflow", cfg).push(a.key, a.repo)
     state.log_run(cfg["id"], a.key, "pushed", branch)
     print(f"pushed {branch}")
 
 
 def h_sync(a, cfg):
-    """Fetch and rebase the ticket branch onto origin/<base> outside the sandbox, where the credentials are."""
+    """Fetch origin outside the sandbox and hand the result to the crew as <dir>/in-<repo>.bundle."""
     base = _repo(cfg, a.repo)["base"]
-    wt = _clone(cfg, a.key, a.repo)
-    gitsafe.git(wt, "fetch", "--prune", "origin")
-    try:
-        gitsafe.git(wt, "rebase", f"origin/{base}")
-    except ProcError as e:
-        files = gitsafe.git(wt, "diff", "--name-only", "--diff-filter=U", check=False)
-        gitsafe.git(wt, "rebase", "--abort", check=False)
-        raise Refused(f"rebase onto origin/{base} stopped and was undone; "
-                      + (f"conflicts in: {', '.join(files.splitlines())}" if files else e.stderr.strip()[:300]))
-    print(f"rebased onto origin/{base}")
+    branch = state.load_ticket(cfg["id"], a.key)["branch"]
+    if not branch:
+        raise Refused(f"no branch recorded for {a.key}; run sf worktree prepare")
+    transport.update(cfg, a.repo)
+    with transport.scratch(cfg["id"]) as tmp:
+        p = transport.publish(transport.bundle_in(cfg, a.repo, branch, tmp / "in.bundle"), cfg["id"], a.key,
+                              f"in-{a.repo}.bundle")
+    print(f"wrote {p}\nin your clone run: git fetch {p} '+refs/heads/*:refs/remotes/origin/*'"
+          f" then git rebase origin/{base}")
 
 
 FAILED_CHECKS = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"}
