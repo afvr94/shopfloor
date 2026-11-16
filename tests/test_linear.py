@@ -153,6 +153,16 @@ class LinearTests(unittest.TestCase):
         tr.update_comment("ENG-1", "C1", "yo")
         self.assertEqual(fake.calls[2][1], {"id": "C1", "body": "yo"})
 
+    def test_link_pr_already_attached_by_the_github_integration_is_done(self):
+        url = "https://github.com/o/r/pull/1"
+        fake = FakeLinear([{"issue": issue("ENG-1")}, {"attachmentLinkURL": {"success": False}},
+                           {"issue": {"attachments": {"nodes": [{"url": url}]}}}])
+        linear.LinearTracker(CFG, post=fake).link_pr("ENG-1", url)
+        fake = FakeLinear([{"issue": issue("ENG-1")}, {"attachmentLinkURL": {"success": False}},
+                           {"issue": {"attachments": {"nodes": [{"url": url + "0"}]}}}])
+        with self.assertRaises(base.TrackerError):
+            linear.LinearTracker(CFG, post=fake).link_pr("ENG-1", url)
+
     def test_link_pr_uses_attachment_link_url(self):
         fake = FakeLinear([{"issue": issue("ENG-1")}, {"attachmentLinkURL": {"success": True}}])
         linear.LinearTracker(CFG, post=fake).link_pr("ENG-1", "https://github.com/o/r/pull/1")

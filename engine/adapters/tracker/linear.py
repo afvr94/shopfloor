@@ -24,6 +24,7 @@ Q_TEAM = """query($key: String!, $label: String!) {
 M_UPDATE = "mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: {stateId: $stateId}) { success } }"
 M_COMMENT = "mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id } } }"
 M_COMMENT_UPDATE = "mutation($id: String!, $body: String!) { commentUpdate(id: $id, input: {body: $body}) { success } }"
+Q_ATTACHED = "query($id: String!) { issue(id: $id) { attachments(first: 50) { nodes { url } } } }"
 M_LINK = "mutation($issueId: String!, $url: String!) { attachmentLinkURL(issueId: $issueId, url: $url) { success } }"
 
 
@@ -119,7 +120,13 @@ class LinearTracker:
         self._write(M_COMMENT_UPDATE, {"id": comment_id, "body": body}, "commentUpdate")
 
     def link_pr(self, key: str, url: str) -> None:
-        self._write(M_LINK, {"issueId": self.get(key).id, "url": url}, "attachmentLinkURL")
+        try:
+            self._write(M_LINK, {"issueId": self.get(key).id, "url": url}, "attachmentLinkURL")
+        except TrackerError:
+            # Linear's GitHub integration often attaches the PR first, and linking the same URL again fails.
+            node = self.post(Q_ATTACHED, {"id": key}).get("issue") or {}
+            if url not in {a["url"] for a in (node.get("attachments") or {}).get("nodes", [])}:
+                raise
 
     def viewer(self) -> str:
         return self.post(Q_VIEWER, {})["viewer"]["name"]
