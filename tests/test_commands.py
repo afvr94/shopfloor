@@ -24,6 +24,13 @@ class ParseTest(unittest.TestCase):
 
 
 class QueueTest(unittest.TestCase):
+    def test_ack_is_cumulative(self):
+        q = CommandQueue(Path(tempfile.mkdtemp()))
+        for i in range(1, 5):
+            q.append("ENG-1", "slack", f"answer {i}", f"{i}.0")
+        q.ack(3)
+        self.assertEqual([r["seq"] for r in q.pending()], [4])
+
     def test_queue_dedupes_and_acks(self):
         d = Path(tempfile.mkdtemp())
         q = CommandQueue(d)

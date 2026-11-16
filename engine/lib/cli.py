@@ -74,15 +74,28 @@ def h_config(a, cfg):
           "dryRun": cfg["dryRun"], "paused": cfg["paused"], "autoRecommend": cfg["autoRecommend"],
           "limits": cfg["limits"],
           "repos": {n: {"github": r["github"], "base": r["base"]} for n, r in cfg["repos"].items()},
-          "gitFlow": {"type": cfg["gitFlow"]["type"]}, "policyPacks": cfg["policyPacks"]})
+          "gitFlow": {"type": cfg["gitFlow"]["type"]}, "policyPacks": cfg["policyPacks"],
+          "tracker": {"label": _lin(cfg)["label"], "holdLabels": _lin(cfg).get("holdLabels", [])}})
+
+
+def _lin(cfg: dict) -> dict:
+    return cfg["tracker"]["linear"]
+
+
+def _eligible(cfg: dict, labels: list[str]) -> bool:
+    have = {l.lower() for l in labels}
+    return _lin(cfg)["label"].lower() in have and not have & {h.lower() for h in _lin(cfg).get("holdLabels", [])}
 
 
 def h_candidates(a, cfg):
-    _out([dataclasses.asdict(t) for t in _make("tracker", cfg).list_candidates()])
+    """Only tickets the crew has never staged: in dry run nothing moves in the tracker, so state is the claim."""
+    known = {t["key"] for t in state.list_tickets(cfg["id"]) if t["stage"]}
+    _out([dataclasses.asdict(t) for t in _make("tracker", cfg).list_candidates() if t.key not in known])
 
 
 def h_get(a, cfg):
-    _out(dataclasses.asdict(_make("tracker", cfg).get(a.key)))
+    t = _make("tracker", cfg).get(a.key)
+    _out({**dataclasses.asdict(t), "eligible": _eligible(cfg, t.labels)})
 
 
 def h_transition(a, cfg):
@@ -99,7 +112,7 @@ def h_transition(a, cfg):
 def h_comment(a, cfg):
     if _dry(cfg, a.key, f"comment on {a.key}"):
         return
-    body = sign(open(a.body_file).read(), cfg["voice"]["name"])
+    body = sign(redact(open(a.body_file).read()), cfg["voice"]["name"])
     tracker = _make("tracker", cfg)
     if a.update:
         tracker.update_comment(a.key, a.update, body)
@@ -126,14 +139,15 @@ def h_chat_open(a, cfg):
 
 
 def h_chat_post(a, cfg):
-    print(_make("chat", cfg).post(_thread(cfg, a.key), open(a.text_file).read()))
+    print(_make("chat", cfg).post(_thread(cfg, a.key), redact(open(a.text_file).read())))
 
 
 def h_chat_ask(a, cfg):
     if not 2 <= len(a.option) <= 3 or not 1 <= a.recommend <= len(a.option):
         raise Usage("need 2-3 --option and --recommend within 1..N")
-    ref = _make("chat", cfg).ask(_thread(cfg, a.key), a.question, a.option, a.recommend)
-    state.save_ticket(cfg["id"], a.key, question=a.question, stage="needs_you")
+    question, options = redact(a.question), [redact(o) for o in a.option]
+    ref = _make("chat", cfg).ask(_thread(cfg, a.key), question, options, a.recommend)
+    state.save_ticket(cfg["id"], a.key, question=question, stage="needs_you")
     print(ref)
 
 
@@ -245,13 +259,28 @@ def h_runs_log(a, cfg):
     state.log_run(cfg["id"], a.key, a.result, a.note)
 
 
+def h_runs_show(a, cfg):
+    """Run lines for one ticket since its latest needs_you (all of them if it never asked)."""
+    asked = [h["ts"] for h in state.load_ticket(cfg["id"], a.key)["history"] if h.get("stage") == "needs_you"]
+    since = asked[-1] if asked else ""
+    _out([r for r in state.recent_runs(cfg["id"], keep=100000) if r.get("key") == a.key and r.get("ts", "") >= since])
+
+
 def h_build(a, cfg):
     try:
         from engine.lib import runner
     except ImportError:
         raise Refused("build runner not available") from None
     if a.sub == "start":
-        runner.start(cfg["id"], a.keys)
+        if cfg["paused"]:
+            raise Refused("paused")
+        bad = [k for k in a.keys if not paths.TICKET_KEY_RE.fullmatch(k)]
+        if bad:
+            raise Usage(f"not a ticket key: {', '.join(bad)}")
+        try:
+            runner.start(cfg["id"], a.keys)
+        except runner.RunnerBusy as e:
+            raise Refused(str(e)) from None
     else:
         _out(runner.status(cfg["id"]))
 
@@ -298,6 +327,7 @@ def _spec():
                               (("--body-file",), {"required": True})]),
         ("merge", "", h_merge, [k, (("repo",), {}), (("pr_number",), {"type": int})]),
         ("runs", "log", h_runs_log, [k, (("result",), {}), (("--note",), {"default": ""})]),
+        ("runs", "show", h_runs_show, [k]),
         ("build", "start", h_build, [(("keys",), {"nargs": "+"})]),
         ("build", "status", h_build, []),
         ("pause", "", h_pause, []),

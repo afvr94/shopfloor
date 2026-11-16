@@ -88,8 +88,9 @@ class CommandQueue:
         return [r for r in self._all() if r["seq"] not in done]
 
     def ack(self, seq: int) -> None:
+        """Acks seq and every command before it: commands apply in order, so acking the last one covers them."""
         with self._locked():
-            data = json.dumps(sorted(self._acked() | {seq}))
+            data = json.dumps(sorted(self._acked() | {r["seq"] for r in self._all() if r["seq"] <= seq} | {seq}))
             fd, tmp = tempfile.mkstemp(dir=self.dir, prefix="commands.cursor.")
             with os.fdopen(fd, "w") as f:
                 f.write(data)

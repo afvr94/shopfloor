@@ -246,6 +246,66 @@ class SfTest(unittest.TestCase):
         self.assertEqual(self.sf("tracker", "explode")[0], 2)
         self.assertEqual(self.sf("nope")[0], 2)
 
+    def test_sf_redacts_outgoing_text(self):
+        f = self.home / "c.md"
+        f.write_text(f"see {TOKEN} and " + "gh" + "o_abcdef123456")
+        self.sf("tracker", "comment", "ENG-1", "--body-file", str(f))
+        self.assertNotIn("SECRET", self.tracker.calls[0][2])
+        self.assertNotIn("abcdef123456", self.tracker.calls[0][2])
+        self.sf("chat", "open", "ENG-1")
+        self.sf("chat", "post", "ENG-1", "--text-file", str(f))
+        self.sf("chat", "ask", "ENG-1", "--question", f"use {TOKEN}?", "--option", TOKEN, "--option", "B",
+                "--recommend", "1")
+        self.assertNotIn("SECRET", str(self.chat.calls))
+        self.assertNotIn("SECRET", state.load_ticket("demo", "ENG-1")["question"])
+
+    def test_candidates_skip_tickets_with_a_local_stage(self):
+        self.tracker.list_candidates = lambda: [self.tracker.get("ENG-1"), self.tracker.get("ENG-2"),
+                                                self.tracker.get("ENG-3")]
+        state.save_ticket("demo", "ENG-1", stage="claimed")
+        state.save_ticket("demo", "ENG-3", title="seen, never staged")
+        code, out, _ = self.sf("tracker", "candidates")
+        self.assertEqual((code, [t["key"] for t in json.loads(out)]), (0, ["ENG-2", "ENG-3"]))
+
+    def test_get_reports_eligibility(self):
+        self.assertTrue(json.loads(self.sf("tracker", "get", "ENG-1")[1])["eligible"])
+        self.tracker.get = lambda key: Ticket(key, "i", "t", "b", ["Shopfloor", "HOLD"], "Todo", "u", None, [], "")
+        self.assertFalse(json.loads(self.sf("tracker", "get", "ENG-1")[1])["eligible"])
+        self.tracker.get = lambda key: Ticket(key, "i", "t", "b", [], "Todo", "u", None, [], "")
+        self.assertFalse(json.loads(self.sf("tracker", "get", "ENG-1")[1])["eligible"])
+
+    def test_config_includes_tracker_labels(self):
+        d = json.loads(self.sf("config")[1])
+        self.assertEqual(d["tracker"], {"label": "shopfloor", "holdLabels": ["hold"]})
+
+    def test_ack_is_cumulative(self):
+        from engine.lib.commands import CommandQueue
+        q = CommandQueue(paths.crew_state_dir("demo"))
+        for i in range(1, 4):
+            q.append("ENG-1", "slack", "go", f"{i}.0")
+        self.assertEqual(self.sf("commands", "ack", "2")[0], 0)
+        self.assertEqual([r["seq"] for r in json.loads(self.sf("commands", "pending")[1])], [3])
+
+    def test_runs_show_counts_since_latest_question(self):
+        state.log_run("demo", "ENG-1", "build failed (exit 1)")
+        state.log_run("demo", "ENG-2", "build timed out")
+        with mock.patch.object(state, "_now", return_value="2999-01-01T00:00:00Z"):
+            state.save_ticket("demo", "ENG-1", stage="needs_you")
+            state.log_run("demo", "ENG-1", "build timed out")
+        code, out, _ = self.sf("runs", "show", "ENG-1")
+        self.assertEqual((code, [r["result"] for r in json.loads(out)]), (0, ["build timed out"]))
+
+    def test_build_start_refuses_when_paused_busy_or_bad_key(self):
+        from engine.lib import runner
+        with mock.patch.object(runner, "start", side_effect=runner.RunnerBusy("a build run is already active")):
+            code, _, err = self.sf("build", "start", "ENG-1")
+        self.assertEqual((code, err.strip()), (1, "a build run is already active"))
+        with mock.patch.object(runner, "start") as start:
+            self.assertEqual(self.sf("build", "start", "ENG-1", "../x")[0], 2)
+            self.write_cfg(paused=True)
+            self.assertEqual(self.sf("build", "start", "ENG-1")[:3:2], (1, "paused\n"))
+        start.assert_not_called()
+
     def test_write_commands_surface(self):
         self.assertEqual(cli.WRITE_COMMANDS, {("tracker", "transition"), ("tracker", "comment"),
                                               ("tracker", "link-pr"), ("ship", ""), ("merge", "")})
