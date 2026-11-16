@@ -4,7 +4,7 @@
 
 [![test](https://github.com/afvr94/shopfloor/actions/workflows/test.yml/badge.svg)](https://github.com/afvr94/shopfloor/actions/workflows/test.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 ![macOS and Linux](https://img.shields.io/badge/runs%20on-macOS%20%7C%20Linux-lightgrey.svg)
 
 Shopfloor runs crews of [Claude Code](https://docs.claude.com/en/docs/claude-code) sessions on your own machine. Put the `shopfloor` label on a Linear ticket and a crew picks it up, plans it in a Slack thread, builds it in its own clone of your repo, opens a pull request and keeps it moving until it lands. You steer from the thread. Every pull request comes with a briefing page that explains the change to you, so you stay on top of code you didn't write.
@@ -68,7 +68,7 @@ Crews run unattended with your credentials, so the defaults are strict. [docs/SA
 
 ## Quick start
 
-You need macOS or Linux, Python 3.9+, `git`, [`gh`](https://cli.github.com) logged in, and Claude Code logged in. On Linux the sandbox also needs `bubblewrap` and `socat`.
+You need macOS or Linux, Python 3.10+, `git`, [`gh`](https://cli.github.com) logged in, and Claude Code logged in. On Linux the sandbox also needs `bubblewrap` and `socat`.
 
 1. **Set up a crew.** The wizard asks for a crew id, your Linear team, Slack channel and repo, stores your tokens in locked files under `~/.shopfloor/secrets`, and installs the schedule and the board.
 

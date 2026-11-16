@@ -307,7 +307,7 @@ def check_all(crew_id: str | None, deps: dict | None = None, during_init: bool =
     which = d["which"]
     rows: list[Row] = [
         (sys.platform in ("darwin", "linux"), "platform", sys.platform),
-        (sys.version_info >= (3, 9), "python", "needs 3.9 or newer" if sys.version_info < (3, 9) else ""),
+        (sys.version_info >= (3, 10), "python", "needs 3.10 or newer" if sys.version_info < (3, 10) else ""),
     ]
     rows += [(bool(which(t)), t, "" if which(t) else f"{t} not found on PATH") for t in ("claude", "git", "gh")]
     if which("claude"):
