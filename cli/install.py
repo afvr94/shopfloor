@@ -146,12 +146,14 @@ def _install(name: str, argv: list[str], extra_plist: dict, calendar, runner, pr
     return files
 
 
-def install_board(board_cfg: dict, runner=proc.run) -> list[Path]:
+def install_board(board_cfg: dict, runner=None) -> list[Path]:
+    runner = runner or proc.run  # looked up per call so tests can patch it
     return _install("board", _bin("board"), {"KeepAlive": True, "RunAtLoad": True},
                     None, runner, _prefix(board_cfg))
 
 
-def install_crew(cfg: dict, runner=proc.run) -> list[Path]:
+def install_crew(cfg: dict, runner=None) -> list[Path]:
+    runner = runner or proc.run
     sched = cfg["schedule"]
     crew_id = cfg["id"]
     paths.crew_config_path(crew_id)  # validates the id
@@ -175,7 +177,8 @@ def unit_paths() -> list[Path]:
     return sorted({p for pat in pats for p in d.glob(pat)})
 
 
-def uninstall(runner=proc.run) -> list[Path]:
+def uninstall(runner=None) -> list[Path]:
+    runner = runner or proc.run
     found = unit_paths()
     for p in found:
         try:

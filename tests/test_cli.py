@@ -148,8 +148,9 @@ class Install(Base):
             self.assertGreaterEqual(len(install.unit_paths()), 2)
             self.assertTrue((paths.crew_dir("demo") / "worktrees").is_dir())
             self.assertTrue((paths.crew_dir("demo") / "tickets").is_dir())
-            with mock.patch.object(install.proc, "run"):
+            with mock.patch.object(install.proc, "run") as run:
                 self.assertEqual(self.main("uninstall")[0], 0)
+            self.assertTrue(run.called)  # the patch reached uninstall: no real service manager was touched
         self.assertEqual(install.unit_paths(), [])
         self.assertTrue(other.exists())
         self.assertTrue(paths.crew_config_path("demo").exists())
