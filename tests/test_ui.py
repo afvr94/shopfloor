@@ -61,6 +61,14 @@ class UiTests(unittest.TestCase):
         for word in ("Mermaid", "DOMPurify", "KaTeX", "Nunito", "Pixelify Sans"):
             self.assertIn(word, notice)
         self.assertNotIn("TODO", notice)
+        self.assertIn("THIRD_PARTY_LICENSES", notice)
+
+    def test_third_party_license_texts(self):
+        text = (ROOT / "THIRD_PARTY_LICENSES").read_text()
+        for need in ("Mermaid 11.4.1 - MIT License", "KaTeX", "DOMPurify 3.2.1", "Knut Sveidqvist", "Khan Academy",
+                     "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION"):
+            self.assertIn(need, text)
+        self.assertEqual(text.count("Permission is hereby granted, free of charge"), 2)
 
 
 if __name__ == "__main__":
