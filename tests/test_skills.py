@@ -77,6 +77,15 @@ class Skills(unittest.TestCase):
             for word in BANNED:
                 self.assertNotIn(word, t.lower(), f"{n}: {word!r}")
 
+    def test_answers_reach_the_work_and_ready_tickets_are_swept(self):
+        t = _texts()
+        for n in ("rules", "tick", "spec", "build"):
+            self.assertIn("<dir>/answers.md", t[n], n)
+        self.assertIn("<dir>/question.md", t["tick"])
+        self.assertIn("Ready sweep", t["tick"])
+        self.assertIn("next tick's sweep", t["tick"])
+        self.assertIn("/shopfloor:spec <KEY>", t["tick"])
+
     def test_rules_lists_core_deal_breakers(self):
         t = _texts()["rules"].lower().replace('"', "")
         for d in DEAL_BREAKERS:

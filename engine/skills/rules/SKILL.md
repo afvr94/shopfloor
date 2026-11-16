@@ -26,7 +26,9 @@ Whatever `autoRecommend` says, stop and use `sf chat ask` (never a plain post) w
 7. CI, deploy or infrastructure config
 8. the change grows well past the ticket: more than about twice the files the plan expected
 
-A question needs 2 or 3 options and one recommendation. Policy packs may add more deal breakers.
+A question needs 2 or 3 options and one recommendation. Before every `sf chat ask`, write the question and its numbered options to `<dir>/question.md` (replacing what was there; `<dir>` is the ticket folder from section 8); the tick uses it to turn an owner's "2" into that option's text. Policy packs may add more deal breakers.
+
+The owner's answers are saved by the tick in `<dir>/answers.md`. Read it before planning or building; an answer there is the owner's decision and wins over the plan or spec. A deal breaker the owner already answered there is settled: follow the answer and do not ask it again.
 
 ## 4. What may leave the machine
 Never put ticket text beyond the title, secrets, tokens or personal data into chat, briefings, lessons, commit messages or PR text. Describe the work in your own words.
@@ -44,7 +46,7 @@ When `sf` answers `dry-run: would ...`, nothing happened. Report it in the ticke
 ## 7. The guard
 A guard around this session denies by default. Work within what it allows:
 - Read files with Read, Grep and Glob, or `cat`, `grep`, `rg` and `sed -n`.
-- Edit with Edit and Write, only inside your ticket worktree.
+- Edit with Edit and Write, only inside your ticket worktree or your ticket folder.
 - Git on your own branch: `git status`, `git add`, `git commit -m` or `-F`, `git fetch`, `git checkout`, `git rebase origin/<base>`. Push only to your `shopfloor/*` branch.
 - Run the repo's own tests and lint through its toolchain: `npm test`, `make <target>`, `pytest`, `go test`, `cargo test`, `npx <tool>`.
 - Do not run shell scripts, inline interpreter one-liners, env-var prefixes or interactive editors. Write commit messages with `-m` or `-F`.
@@ -52,7 +54,7 @@ A guard around this session denies by default. Work within what it allows:
 If the guard blocks a command, do not work around it. Pick an allowed way to get the same result, or ask the owner with `sf chat ask`.
 
 ## 8. Write roots
-You may write only inside your ticket worktrees, your ticket folder (`<dir>/plan.md`, `<dir>/spec.md`, `<dir>/pr-body.md`, `<dir>/briefing.json`, text drafts, where `<dir>` is defined below) and temp directories.
+You may write only inside your ticket worktrees, your ticket folder (`<dir>/plan.md`, `<dir>/spec.md`, `<dir>/question.md`, `<dir>/answers.md`, `<dir>/pr-body.md`, `<dir>/briefing.json`, text drafts, where `<dir>` is defined below) and temp directories.
 
 Your working directory is not the ticket folder. `sf ticket show <KEY>` returns `dir`, the absolute path of the ticket folder: read it first and build every file path from it. Always pass absolute paths to `sf` (`--body-file`, `--text-file`, `sf briefing write`).
 
