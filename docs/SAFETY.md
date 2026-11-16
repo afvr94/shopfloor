@@ -4,7 +4,7 @@ A crew is Claude Code running unattended on your machine with your `gh` and Clau
 
 ## 1. Dry run
 
-New crews start with `"dryRun": true`, enforced inside the `sf` command that crews use for every write. In dry run, chat and local builds happen. There is no push, no pull request, no tracker write and no merge: `sf` prints `dry-run: would ...` and records it in the run log instead. The guard lets those `sf` calls through so the crew sees and reports the "would" line; it still blocks `git push` and `gh pr comment`/`review` itself in dry run, since those do not go through `sf`. Because nothing moves in the tracker, `sf tracker candidates` leaves out tickets the crew has already staged, so a dry run never claims the same ticket twice. Dry run stays on until you set `"dryRun": false` in the crew config.
+New crews start with `"dryRun": true`, enforced inside the `sf` command that crews use for every write. In dry run, chat and local builds happen. There is no push, no pull request, no pull request reply, no tracker write and no merge: `sf` prints `dry-run: would ...` and records it in the run log instead. The guard lets those `sf` calls through so the crew sees and reports the "would" line. Crews cannot push or comment any other way: the guard blocks `gh` and network git in every mode (section 3). Because nothing moves in the tracker, `sf tracker candidates` leaves out tickets the crew has already staged, so a dry run never claims the same ticket twice. Dry run stays on until you set `"dryRun": false` in the crew config.
 
 ## 2. Git flows
 
@@ -14,7 +14,7 @@ New crews start with `"dryRun": true`, enforced inside the `sf` command that cre
 - `squash-on-green`: the crew squash-merges only when all checks are green, the pull request is mergeable and not a draft, and it touches no path matching `gitFlow.mergeDenyPaths`. The merge is pinned to the head commit it checked, so a later push cannot slip in.
 - `merge-to-test-branch`: when checks are green, the pull request is not a draft and it touches no denied path, the crew merges it with `--no-ff` into `gitFlow.testBranch`, from its own clone of the repo, and leaves the pull request open. The test branch must not be protected or a repo base branch.
 
-`sf merge` refuses to merge while the crew is paused. `sf ship` pushes only `shopfloor/*` branches (no `..`), never the test branch, a protected branch or a repo base branch.
+`sf merge` refuses to merge while the crew is paused. `sf ship` and `sf push` push only `shopfloor/*` branches (no `..`), never the test branch, a protected branch or a repo base branch.
 
 Each ticket's repo is a full local clone of your checkout under the crew's `worktrees/<KEY>/<repo>` folder, with its `origin` set to the real remote. It is a clone rather than a git worktree so that its `.git` directory sits inside the sandbox's write area (section 4); your own checkout is only read and fetched. A clone that holds commits found nowhere on `origin` is moved aside into the ticket folder rather than deleted.
 
@@ -23,9 +23,8 @@ Each ticket's repo is a full local clone of your checkout under the crew's `work
 Every tool call in a crew session passes through a `PreToolUse` hook before it runs. It:
 
 - allows only commands on a default-deny list; anything it cannot parse or recognise is blocked
-- allows pushes only to `shopfloor/*` branches, blocks rebase and `reset --hard` on protected branches, and otherwise runs local git only in the crew's worktrees
-- blocks `gh pr create`, `gh pr merge` and any non-GET `gh api` (these go through `sf ship` and `sf merge`), and blocks direct calls to the Linear and Slack APIs; `gh pr comment` and `gh pr review --comment` are allowed outside dry run (blocked in dry run); read-only `gh` commands are allowed
-- blocks `gh auth token` and `gh auth status -t`/`--show-token`
+- blocks every `gh` call and `git push`, `git fetch` and `git pull`, with a reason naming the `sf` command that does the same (section 4); blocks rebase and `reset --hard` on protected branches, and otherwise runs local git only in the crew's worktrees
+- blocks direct calls to the Linear and Slack APIs
 - blocks commands and file tools that name a secret path: `.env` files, `~/.shopfloor/secrets`, the crew's token files, `guard.secretFiles`, `guard.offLimits` and the credential defaults listed in section 6
 - allows writes only inside the crew's worktrees and tickets folders (and the system temp directory); inside those it still blocks `.git` and `.claude` paths, each ticket's `state.json` and `briefing.json` (only `sf` writes those), and `CLAUDE.md` or `AGENTS.md` at the worktrees root or in a ticket's folder there, which would become instructions for later sessions
 - blocks MCP tools, WebFetch, inline interpreter code (`python -c`, `node -e` and similar) and anything that opens an editor; WebSearch stays on
@@ -44,9 +43,27 @@ Shopfloor turns on Claude Code's built-in sandbox for every crew session. It is 
 - no reads of the secret set (`sandbox.filesystem.denyRead`): the credential defaults in section 6, `guard.secretFiles`, `guard.offLimits`, `~/.shopfloor/secrets` and the crew's token files
 - `failIfUnavailable` and `allowUnsandboxedCommands: false`, so a session fails rather than runs without it
 
-**`sf` runs outside the sandbox** (`sandbox.excludedCommands: ["sf *"]`). It has to: `sf` writes crew state under `~/.shopfloor`, reads the tracker and chat tokens, and pushes and opens pull requests for `sf ship` and `sf merge`, none of which the sandbox allows. `sf` is the trusted mediator for every side effect. Its surface is small, the guard checks its arguments before it runs (dry-run reporting, `tracker.mayMove`, no secret paths), and it redacts tokens from chat and tracker text before sending. Claude Code matches excluded commands by the text of the call, so `sf` escapes the sandbox only when it is called by name on its own; a call that chains it with a redirect, a `cd` or `$(...)` stays sandboxed.
+**`sf` runs outside the sandbox** (`sandbox.excludedCommands: ["sf *"]`). It has to: `sf` writes crew state under `~/.shopfloor`, reads the tracker and chat tokens, and talks to GitHub with your `gh` login and git credentials, none of which the sandbox allows. `sf` is the trusted mediator for every side effect. Its surface is small, the guard checks its arguments before it runs (dry-run reporting, `tracker.mayMove`, no secret paths), and it redacts tokens from chat, tracker, pull request and CI log text. A file the crew names (`--body-file`, `--text-file`, a briefing draft) is opened without following a symlink, and `sf` reads it only if its real path is inside the crew's worktrees, tickets folder or the temp directory and not a secret path. Claude Code matches excluded commands by the text of the call, so `sf` escapes the sandbox only when it is called by name on its own; a call that chains it with a redirect, a `cd` or `$(...)` stays sandboxed.
 
-Everything else the crew runs, including `git` and `gh`, stays sandboxed. Two consequences: on macOS, `git push` over SSH does not work inside Claude Code's sandbox, and `~/.ssh` and `~/.config/gh` are on the deny-read list anyway, so give each repo an HTTPS `origin` with a credential helper that keeps the token outside those folders (the macOS keychain helper, for example); `sf ship` pushes from outside the sandbox and is not affected. `gh` read commands in a crew session (the watch step) depend on the same; run `shopfloor doctor --live` to see what your machine allows.
+Crews never run `gh` or network git themselves. Everything that reaches GitHub goes through `sf`, outside the sandbox:
+
+- `sf pr view <KEY>`: each pull request on the ticket with its state, mergeability, draft flag, head commit, a summary of its checks, the review decision and review comments newer than the ticket's `reviewSeen` (author, body, and file and line for inline comments), as JSON with bodies redacted
+- `sf pr log <KEY> <run-id>`: the failed-step log of a CI run on the ticket's branch in one of its pull request repos, redacted and cut to the last 400 lines
+- `sf pr reply <KEY> <repo> <number> --body-file <file>`: a comment on one of the ticket's pull requests, redacted (a "would" line in dry run)
+- `sf push <KEY> <repo>`: pushes the ticket clone's branch, with the same branch rules as `sf ship` (a "would" line in dry run)
+- `sf sync <KEY> <repo>`: fetches and rebases the ticket branch onto `origin/<base>`; on a conflict it undoes the rebase and lists the conflicted files
+
+Local git (`status`, `diff`, `log`, `add`, `commit`, `checkout`, a local `rebase`) and the repo's own toolchain stay sandboxed. `~/.ssh` and `~/.config/gh` stay on the deny-read list, and SSH or `gh` credentials are only ever used by `sf`. `shopfloor doctor --live` checks each repo's `origin` with `git ls-remote` through the same git `sf` uses.
+
+### Git in ticket clones
+
+Sandboxed code can write a clone's `.git` directory, and `sf` then runs git there outside the sandbox. So every git call `sf` makes in a clone goes through one helper (`engine/lib/gitsafe.py`) that:
+
+- turns off hooks (`core.hooksPath=/dev/null`), `core.fsmonitor`, pagers (`core.pager=cat`), the `ext::` transport and submodule recursion, sets `core.sshCommand=ssh`, and replaces any credential helper with the helpers from your global git config, all on the command line, where they win over any config file; it also sets `GIT_CONFIG_NOSYSTEM=1` and `GIT_TERMINAL_PROMPT=0`, and adds `--no-verify` to push, commit and merge
+- checks the clone's `.git/config` before every call against a digest `sf` recorded when it built the clone. The clone is built in a folder the crew cannot write, its digest is stored under `~/.shopfloor/state/<crew>/clones/` (outside the sandbox's write area, and blocked by the guard), and only then is it moved into the worktrees folder. Branch tracking entries and `user.name`/`user.email` may change; anything else (an `include.path`, a new hook path, a rewritten remote) makes `sf` refuse with "clone config changed", log a run line, and the crew hands the ticket to you
+- pushes to the push URL of your own checkout's `origin`, with an explicit `HEAD:refs/heads/<branch>` refspec, so the clone's remote settings play no part
+
+A leftover folder `sf` has no digest for is moved aside into the ticket folder without running git in it.
 
 On Linux the sandbox needs bubblewrap (`bwrap`) and `socat`; on macOS it uses `sandbox-exec`. `shopfloor doctor` checks for them, and `shopfloor doctor --live` starts one real sandboxed crew session in a temp folder to prove a sandboxed write and an `sf` write both work.
 
