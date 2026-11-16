@@ -1,0 +1,26 @@
+{
+  "display_information": {
+    "name": "Shopfloor",
+    "description": "Posts ticket threads for a Shopfloor crew and reads your replies."
+  },
+  "features": {
+    "bot_user": {"display_name": "Shopfloor", "always_online": false}
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "chat:write.customize",
+        "channels:history",
+        "groups:history",
+        "channels:read",
+        "groups:read"
+      ]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
