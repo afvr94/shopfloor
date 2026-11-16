@@ -19,7 +19,7 @@ Load `/shopfloor:rules` first. Input is a ticket key. Work only in the ticket's 
 4. Keep checking the deal breakers in `/shopfloor:rules` as you learn more. If one shows up, or the change touches more than about twice the files the plan expected, stop and `sf chat ask`. Leave the worktree as it is.
 
 ## 3. Commit
-Small commits on your branch with Conventional Commit messages that carry the ticket key as scope, for example `feat(ENG-12): add rate limit`. Use `git commit -m` or `-F`. No attribution or sign-off lines of any kind. Then `git fetch` and `git rebase origin/<base>`.
+Small commits on your branch with Conventional Commit messages that carry the ticket key as scope, for example `feat(ENG-12): add rate limit`. Use `git commit -m` or `-F`. No attribution or sign-off lines of any kind. Then `sf sync <KEY> <repo>`: it fetches and rebases your branch onto `origin/<base>` from outside the sandbox. If it reports conflicts, it has already fetched, so run `git rebase origin/<base>` yourself, resolve each listed file, `git add` it and `git rebase --continue`.
 
 ## 4. Ship
 1. Write the PR body to `<dir>/pr-body.md`: what changed and why, how it was checked. No ticket text beyond the title, no secrets.

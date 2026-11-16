@@ -35,6 +35,8 @@ Never put ticket text beyond the title, secrets, tokens or personal data into ch
 
 ## 5. Side effects go through `sf`
 - Tracker changes, PRs and merges happen only through `sf tracker`, `sf ship` and `sf merge`.
+- Everything that talks to GitHub goes through `sf`: `sf pr view`, `sf pr log` and `sf pr reply` for pull requests and CI, `sf push` and `sf sync` for pushing and fetching. You never run `gh`, `git push`, `git fetch` or `git pull`; the sandbox has no credentials for them and the guard blocks them.
+- If `sf` refuses with `clone config changed`, stop work on that ticket and do not touch its clone: `sf chat ask` with that message (stage becomes `needs_you`).
 - Chat goes through `sf chat post` and `sf chat ask`.
 - Run state changes only through `sf ticket set`, `sf commands ack`, `sf lessons`, `sf runs log`, `sf pause` and `sf resume`.
 - Never write `state.json`, `briefing.json`, `commands.jsonl`, `lessons.json` or `runs.jsonl` yourself, nor a `CLAUDE.md` or `AGENTS.md` in the worktrees folder or a ticket's folder inside it.
@@ -48,7 +50,7 @@ A guard around this session denies by default. Work within what it allows:
 - Read files with Read, Grep and Glob, or `cat`, `grep`, `rg` and `sed -n`. WebFetch is off; WebSearch is on.
 - Run `sf` by name and on its own (no redirect, `cd` or `$(...)` in the same command): only then does it run outside the sandbox and can write crew state.
 - Edit with Edit and Write, only inside your ticket worktree or your ticket folder.
-- Git on your own branch: `git status`, `git add`, `git commit -m` or `-F`, `git fetch`, `git checkout`, `git rebase origin/<base>`. Push only to your `shopfloor/*` branch.
+- Local git on your own branch: `git status`, `git diff`, `git log`, `git add`, `git commit -m` or `-F`, `git checkout`, and `git rebase origin/<base>` after `sf sync` fetched it. `sf push` pushes only your `shopfloor/*` branch.
 - Run the repo's own tests and lint through its toolchain: `npm test`, `make <target>`, `pytest`, `go test`, `cargo test`, `npx <tool>`.
 - Do not run shell scripts, inline interpreter one-liners, env-var prefixes or interactive editors. Write commit messages with `-m` or `-F`.
 

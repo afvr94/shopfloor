@@ -98,6 +98,16 @@ class Skills(unittest.TestCase):
         self.assertIn("sf briefing write <KEY> <dir>/briefing-draft.json", build)
         self.assertNotIn("Write `<dir>/briefing.json`", build)
 
+    def test_crews_reach_github_only_through_sf(self):
+        t = _texts()
+        for n in ("watch", "build", "tick", "spec"):
+            for word in ("`gh ", "git push", "git fetch", "git pull"):
+                self.assertNotIn(word, t[n], f"{n}: {word}")
+        for cmd in ("sf pr view <KEY>", "sf pr log <KEY>", "sf pr reply <KEY>", "sf push <KEY>", "sf sync <KEY>"):
+            self.assertIn(cmd, t["watch"] + t["build"], cmd)
+        self.assertIn("clone config changed", t["rules"])
+        self.assertIn("clone config changed", t["tick"])
+
     def test_rules_lists_core_deal_breakers(self):
         t = _texts()["rules"].lower().replace('"', "")
         for d in DEAL_BREAKERS:
