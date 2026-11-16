@@ -8,7 +8,6 @@ in the file, not shown). The owner can forget or reword a lesson.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import json
 import re
 from datetime import datetime, timezone
@@ -45,7 +44,7 @@ def _scope(crew_id: str) -> str:
 def _load(crew_id: str) -> tuple[Path, dict]:
     path = _file(crew_id)
     try:
-        data = signing.unseal(_scope(crew_id), json.loads(path.read_text()), str(path))
+        data = signing.read(_scope(crew_id), path.read_text(), str(path))
     except FileNotFoundError:
         return path, {"next": 1, "lessons": []}
     except signing.Tampered as e:
@@ -64,11 +63,10 @@ def _load(crew_id: str) -> tuple[Path, dict]:
 
 @contextlib.contextmanager
 def _locked(crew_id: str):
-    with open(str(_file(crew_id)) + ".lock", "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with state.held(str(_file(crew_id)) + ".lock"):
         path, data = _load(crew_id)
         yield data
-        state.atomic_write(path, json.dumps(signing.seal(_scope(crew_id), data), indent=1, ensure_ascii=False))
+        state.atomic_write(path, json.dumps(signing.seal(_scope(crew_id), data), indent=1))
 
 
 def _active(data: dict) -> list[dict]:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 
-from engine.lib import gitsafe, paths, transport
+from engine.lib import gitsafe, paths, state, transport
 from engine.lib.proc import ProcError
 
 from . import base
@@ -33,7 +33,7 @@ class MergeToTestBranch(GitFlow):
             transport.update(self.cfg, repo_name)
             if not (wt / ".git").is_dir():
                 shutil.rmtree(wt, ignore_errors=True)
-                wt.parent.mkdir(parents=True, exist_ok=True)
+                state.make_dir(wt.parent)
                 gitsafe.git(wt.parent, "clone", "--quiet", "--no-checkout",
                             str(transport.gitdir(self.crew, repo_name)), str(wt), local=True)
             g("fetch", "--quiet", "--prune", "origin")

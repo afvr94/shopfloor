@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from board import sessions
 from cli.schedule import run_times
 from engine.lib import briefing, config, lessons, paths, runner, signing, state
+from engine.lib.commands import CommandQueue, CommandQueueError
 from engine.lib.redact import redact
 
 _TICKET_FIELDS = ("key", "title", "url", "stage", "prs", "branch", "fixRounds", "updatedAt", "tampered")
@@ -59,18 +59,30 @@ def crew_state(crew_id: str) -> dict:
     out["tampered"] = [t["question"] for t in tickets if t.get("tampered")]
     out["questions"] = [{"key": t["key"], "title": t["title"], "question": t["question"]}
                         for t in tickets if t["stage"] == "needs_you"]
+    out["tampered"] += [why for why in (_briefing(crew_id, t["key"])[1] for t in tickets) if why]
     out["runs"] = state.recent_runs(crew_id, 60)
     try:
         out["lessons"] = lessons.show(crew_id)
     except lessons.LessonError as e:
         if "tampered" in str(e):
             out["tampered"].append(redact(str(e)))
+    try:
+        CommandQueue(paths.crew_dir(crew_id)).pending()
+    except CommandQueueError as e:
+        out["tampered"].append(redact(str(e)))
     return out
+
+
+def _safe_crew_state(crew_id: str) -> dict:
+    try:
+        return crew_state(crew_id)
+    except Exception as e:  # noqa: BLE001 - one crew's broken state must not take the board down for the others
+        return {"id": crew_id, "error": redact(f"{type(e).__name__}: {e}")}
 
 
 def board_state() -> dict:
     try:
-        crews = [crew_state(c) for c in config.list_crews()]
+        crews = [_safe_crew_state(c) for c in config.list_crews()]
     except config.ConfigError as e:
         return {"crews": [], "sessions": [], "error": redact(str(e))}
     try:
@@ -80,12 +92,21 @@ def board_state() -> dict:
     return {"crews": crews, "sessions": found, "error": None}
 
 
-def briefing_data(crew_id: str, key: str) -> dict | None:
+def _briefing(crew_id: str, key: str) -> tuple[dict | None, str | None]:
+    """(briefing, None), (None, why it is tampered), or (None, None) when there is none."""
     path = paths.ticket_state_dir(crew_id, key) / "briefing.json"
     try:
-        return signing.unseal(briefing.scope(crew_id, key), json.loads(path.read_text()), str(path))
-    except signing.Tampered:
+        text = path.read_text()
+    except FileNotFoundError:
+        return None, None
+    except (OSError, UnicodeError) as e:
+        text = f"unreadable: {e}"
+    try:
+        return signing.read(briefing.scope(crew_id, key), text, str(path)), None
+    except signing.Tampered as e:
         state.report_tampered(crew_id, key, path)
-    except (OSError, ValueError):
-        pass
-    return None
+        return None, str(e)
+
+
+def briefing_data(crew_id: str, key: str) -> dict | None:
+    return _briefing(crew_id, key)[0]

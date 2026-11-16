@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from engine.lib import lessons, paths
+from tests import owner
 
 TEXT = "Run the linter before pushing so CI does not fail"
 
@@ -64,7 +65,7 @@ class LessonsTest(unittest.TestCase):
 
     def test_malformed_entry_raises_lesson_error(self):
         for entry in ({"text": "x", "area": "a", "state": "active"}, {"id": 1, "text": "x", "state": "active"}, "junk", {"id": 1, "area": "a", "text": "x"}):
-            (paths.crew_state_dir("crew") / "lessons.json").write_text(json.dumps({"next": 2, "lessons": [entry]}))
+            owner.write(paths.crew_state_dir("crew") / "lessons.json", json.dumps({"next": 2, "lessons": [entry]}))
             with self.assertRaises(lessons.LessonError):
                 lessons.show("crew")
             with self.assertRaises(lessons.LessonError):
@@ -97,7 +98,7 @@ class LessonsTest(unittest.TestCase):
         self.assertEqual(states[1], "active")
 
     def test_corrupt_store_raises(self):
-        (paths.crew_state_dir("crew") / "lessons.json").write_text("{nope")
+        owner.write(paths.crew_state_dir("crew") / "lessons.json", "{nope")
         with self.assertRaises(lessons.LessonError):
             lessons.show("crew")
         with self.assertRaises(lessons.LessonError):

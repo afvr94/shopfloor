@@ -10,7 +10,7 @@ import contextlib
 import tempfile
 from pathlib import Path
 
-from . import config, crewfs, gitsafe, paths
+from . import config, crewfs, gitsafe, paths, state
 
 LOCAL_TIMEOUT = 60  # seconds for a bundle check or fetch; a crew-made bundle must not stall sf
 NO_REMOTE = "file:///nonexistent"  # a crew clone's origin: sandboxed network git has nowhere to go
@@ -40,7 +40,7 @@ def ensure(cfg: dict, repo: str) -> Path:
     url = gitsafe.git(main, "remote", "get-url", "origin")
     push_url = gitsafe.git(main, "remote", "get-url", "--push", "origin")
     if not (d / "HEAD").is_file():
-        d.mkdir(parents=True, exist_ok=True)
+        state.make_dir(d)
         _t(cfg, repo, "init", "--quiet", "--bare", local=True)
     _t(cfg, repo, "config", "remote.origin.url", url, local=True)
     _t(cfg, repo, "config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/heads/*", local=True)
@@ -63,7 +63,7 @@ def sha(cfg: dict, repo: str, ref: str) -> str:
 @contextlib.contextmanager
 def scratch(crew: str):
     """A private dir under the crew state dir, outside the sandbox's write roots."""
-    root(crew).mkdir(parents=True, exist_ok=True)
+    state.make_dir(root(crew))
     with tempfile.TemporaryDirectory(dir=root(crew), prefix="tmp-") as d:
         yield Path(d)
 

@@ -13,6 +13,8 @@ import secrets
 import stat
 from pathlib import Path
 
+from . import state
+
 MAX_TEXT = 1 << 20
 _CHUNK = 1 << 16
 
@@ -31,7 +33,7 @@ def _parts(rel) -> list[str]:
 def _root_fd(root, create: bool) -> int:
     root = Path(root)
     if create:
-        root.mkdir(parents=True, exist_ok=True)
+        state.make_dir(root)
     real = os.path.realpath(root)
     fd = os.open(real, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     a, b = os.fstat(fd), os.stat(root)

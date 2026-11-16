@@ -260,8 +260,6 @@ FILE_CALLS = {"open", "read_text", "read_bytes", "write_text", "write_bytes", "m
 TEMP_CALLS = {"gettempdir", "mkstemp", "mkdtemp", "NamedTemporaryFile", "TemporaryFile", "TemporaryDirectory",
               "SpooledTemporaryFile"}
 ALLOWED = {
-    ("cli/init.py", "ensure_dirs"): "creates the write roots themselves, inside the state dir only sf writes",
-    ("engine/lib/runner.py", "claude_cwd"): "creates the worktrees root itself, inside sf's state dir",
     ("engine/lib/runner.py", "claude_invocation"): "names the temp dir as a sandbox write root; opens nothing",
     ("engine/lib/cli.py", "_write_roots"): "names the temp dir as a read root; reads go through crewfs",
     ("engine/lib/state.py", "atomic_write"): "mkstemp(dir=) next to sf's own record, never in the temp dir",

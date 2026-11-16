@@ -187,7 +187,7 @@ class SfTest(SfCase):
         self.assertEqual((code, err.strip()), (1, "paused"))
 
     def test_ship_records_pr(self):
-        (paths.worktrees_dir("demo") / "ENG-1" / "app").mkdir(parents=True)
+        state.make_dir(paths.worktrees_dir("demo") / "ENG-1" / "app")
         body = self.home / "b.md"
         body.write_text("x")
         code, out, _ = self.sf("ship", "ENG-1", "app", "--title", "t", "--body-file", str(body))
@@ -357,8 +357,7 @@ class SfPrTest(SfCase):
         super().setUp()
         state.save_ticket("demo", "ENG-1", branch="shopfloor/eng-1-x",
                           prs=[{"repo": "app", "number": 7, "url": "https://github.com/o/app/pull/7"}])
-        self.dir = paths.ticket_dir("demo", "ENG-1")
-        self.dir.mkdir(parents=True)
+        self.dir = state.make_dir(paths.ticket_dir("demo", "ENG-1"))
 
     def gh(self, answers):
         fake = FakeGH(answers)

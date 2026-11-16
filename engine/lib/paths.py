@@ -33,7 +33,7 @@ def crew_dir(crew_id: str) -> Path:
 
 def crew_state_dir(crew_id: str) -> Path:
     d = crew_dir(crew_id)
-    d.mkdir(parents=True, exist_ok=True)
+    d.mkdir(mode=0o500, parents=True, exist_ok=True)  # born locked; see state.unlocked
     return d
 
 

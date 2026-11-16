@@ -12,7 +12,7 @@ from board import listener
 from board.briefing_page import BRIEF_PATH, render_briefing
 from board.state import board_state, briefing_data, tick_running
 from engine.lib import config, paths
-from engine.lib.commands import CommandQueue
+from engine.lib.commands import CommandQueue, CommandQueueError
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 CSP = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'"
@@ -118,7 +118,10 @@ def make_handler(host: str, files: dict[str, Path]):
                     and isinstance(text, str) and text.strip() and len(text) <= MAX_TEXT):
                 return self._json(400, {"ok": False, "message": "bad key or text"})
             ts = datetime.now(timezone.utc).isoformat()
-            queued = CommandQueue(paths.crew_state_dir(crew)).append(key, "board", text, ts)
+            try:
+                queued = CommandQueue(paths.crew_state_dir(crew)).append(key, "board", text, ts)
+            except CommandQueueError as e:
+                return self._json(409, {"ok": False, "message": str(e)})
             self._json(200, {"ok": True, "queued": queued})
 
         def log_message(self, *args) -> None:

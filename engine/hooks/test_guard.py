@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from engine.hooks import guard
-from engine.lib import config, paths
+from engine.lib import config, paths, state
 
 GUARD = Path(__file__).resolve().parent / "guard.py"
 BASH, READ, WRITE, EDIT, GREP, GLOB, NB = "Bash", "Read", "Write", "Edit", "Grep", "Glob", "NotebookEdit"
@@ -798,7 +798,7 @@ class GuardTest(unittest.TestCase):
         _git(main, "commit", "-q", "-m", "init")
         wts = paths.worktrees_dir("demo")
         cls.wt, cls.test_wt = wts / "eng-1", wts / "staging"
-        wts.mkdir(parents=True, exist_ok=True)
+        state.make_dir(wts)
         for d, b in ((cls.wt, "shopfloor/eng-1-x"), (cls.test_wt, "staging")):
             _git(wts, "clone", "-q", str(main), str(d))
             _git(d, "checkout", "-q", "-b", b)

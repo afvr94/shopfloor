@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from engine.lib import paths, signing, state
+from tests import owner
 
 
 def iso(dt: datetime) -> str:
@@ -90,8 +91,7 @@ class RunsTest(Base):
     def test_recent_runs_keeps_last_and_skips_torn_lines(self):
         for i in range(5):
             state.log_run("a", None, f"r{i}")
-        with open(paths.crew_state_dir("a") / "runs.jsonl", "a") as f:
-            f.write('{"ts": "torn\n')
+        owner.append(paths.crew_state_dir("a") / "runs.jsonl", '{"ts": "torn\n')
         state.log_run("a", None, "r5")
         self.assertEqual([r["result"] for r in state.recent_runs("a", keep=3)], ["r3", "r4", "r5"])
         self.assertEqual(state.recent_runs("none"), [])
@@ -127,7 +127,7 @@ class TicketTest(Base):
         p = paths.ticket_state_dir("a", "ENG-1") / "state.json"
         d = json.loads(p.read_text())
         d["updatedAt"] = "2999-01-01T00:00:00Z"
-        p.write_text(json.dumps(signing.seal("ticket/a/ENG-1", d)))
+        owner.write(p, json.dumps(signing.seal("ticket/a/ENG-1", d)))
         self.assertEqual([t["key"] for t in state.list_tickets("a")], ["ENG-1", "ENG-2"])
         self.assertEqual(state.list_tickets("nobody"), [])
 

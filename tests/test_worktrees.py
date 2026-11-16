@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from engine.lib import gitsafe, paths, transport, worktrees
+from engine.lib import gitsafe, paths, state, transport, worktrees
 from tests.gitrepo import commit_file, git, make_repo, tmpdir, IDENT
 
 
@@ -73,7 +73,7 @@ class TestPrepare(WorktreeCase):
         target = Path(self.tmp.name) / "victim"
         target.write_text("keep")
         tdir = paths.ticket_dir("crew", "ABC-1")
-        tdir.mkdir(parents=True, exist_ok=True)
+        state.make_dir(tdir)
         self.bundle().symlink_to(target)
         worktrees.prepare(self.cfg, "ABC-1", "app", "shopfloor/abc-1-x")
         self.assertEqual(target.read_text(), "keep")

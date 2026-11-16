@@ -29,7 +29,7 @@ def read_secret(secret, prompt: str) -> str:
 
 def ensure_dirs(crew_id: str) -> None:
     for d in ("worktrees", "tickets"):
-        (paths.crew_state_dir(crew_id) / d).mkdir(exist_ok=True)
+        state.make_dir(paths.crew_state_dir(crew_id) / d)
 
 
 def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, deps=None) -> int:

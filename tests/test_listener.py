@@ -50,7 +50,7 @@ class ListenerTest(unittest.TestCase):
         self.assertEqual(listener.poll_once(), 0)
         cursors = paths.crew_state_dir("demo") / "listener.json"
         self.assertEqual(json.loads(cursors.read_text()), {"ENG-1": "101.000"})
-        cursors.unlink()  # lost cursor: the queue's (source, ts) dedupe still holds
+        state.remove(cursors)  # lost cursor: the queue's (source, ts) dedupe still holds
         self.assertEqual(listener.poll_once(), 0)
         rows = self.pending()
         self.assertEqual([(r["key"], r["source"], r["ts"], r["cmd"]) for r in rows],

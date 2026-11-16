@@ -52,9 +52,7 @@ def claude_invocation(crew_id: str, prompt: str) -> tuple[list[str], dict]:
 
 def claude_cwd(crew_id: str):
     """Working dir for every crew claude session; the sandbox grants writes here, so never the repo root."""
-    d = paths.worktrees_dir(crew_id)
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return state.make_dir(paths.worktrees_dir(crew_id))
 
 
 def killpg(pid: int, sig: int) -> None:

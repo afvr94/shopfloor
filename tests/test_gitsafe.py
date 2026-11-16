@@ -29,8 +29,8 @@ class Case(unittest.TestCase):
 class RefusalTest(Case):
     def test_refuses_crew_writable_targets_and_arguments_before_running_anything(self):
         wts, tickets = paths.worktrees_dir("crew"), paths.crew_state_dir("crew") / "tickets"
-        (wts / "ABC-1" / "app").mkdir(parents=True)
-        (tickets / "ABC-1").mkdir(parents=True)
+        state.make_dir(wts / "ABC-1" / "app")
+        state.make_dir(tickets / "ABC-1")
         link = self.root / "link"
         link.symlink_to(wts / "ABC-1")
         upper = str(wts).replace("/worktrees", "/WORKTREES")
