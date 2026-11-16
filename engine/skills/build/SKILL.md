@@ -10,7 +10,7 @@ Load `/shopfloor:rules` first. Input is a ticket key. Work only in the ticket's 
 ## 1. Prepare
 1. `sf ticket show <KEY>` for the stage, repo, any existing branch and `dir`, the absolute ticket folder. Build every ticket-file path below from `dir`. Read `<dir>/plan.md` or `<dir>/spec.md`.
 2. `sf worktree prepare <KEY> <repo>` prints the worktree path. A rebuild reuses leftover work: check `git status` and the existing commits first, and finish what is there.
-3. `sf ticket set <KEY> --stage building`.
+3. `sf ticket set <KEY> --stage building`, on every attempt including a rebuild; the tick counts these history entries.
 
 ## 2. Implement
 1. Follow the plan or spec. Read the surrounding code and match its style and tests.

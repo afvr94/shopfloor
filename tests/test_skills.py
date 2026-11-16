@@ -64,10 +64,10 @@ class Skills(unittest.TestCase):
         for n, t in _texts().items():
             for span in re.findall(r"`(sf [^`]+)`", t):
                 words = span.split()[1:]
-                for key in ((words[0], words[1] if len(words) > 1 else ""), (words[0], "")):
-                    if key in flags:
-                        break
-                else:
+                key = next((k for k in ((words[0], words[1] if len(words) > 1 else ""), (words[0], ""))
+                            if k in flags), None)
+                if key is None:
+                    self.assertNotIn("--", span, f"{n}: {span}")
                     continue
                 for f in re.findall(r"--[a-z-]+", span):
                     self.assertIn(f, flags[key], f"{n}: {span}")

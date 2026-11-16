@@ -25,12 +25,12 @@ Set the stage with `sf ticket set <KEY> --stage planning`. Post a summary of the
 No open questions: queue the ticket (`sf ticket set <KEY> --stage planning`; the tick adds it to its build queue) and stop.
 
 With open questions, `autoRecommend` from `sf config` decides:
-- `questions`: take your recommendation for each non-deal-breaker question, update `spec.md` to say so, and post the choice with `sf chat post <KEY> --text-file <dir>/<file>`: the question, what you chose and why. Do not use `sf chat ask`, it would mark the ticket as waiting on the owner. Then queue the ticket.
+- `questions`: take your recommendation for each non-deal-breaker question, update `<dir>/spec.md` to say so, and post the choice with `sf chat post <KEY> --text-file <dir>/<file>`: the question, what you chose and why. Do not use `sf chat ask`, it would mark the ticket as waiting on the owner. Then queue the ticket.
 - `never`: ask each question with `sf chat ask <KEY> --question "<text>" --option "<a>" --option "<b>" --recommend <N>`. The ticket moves to `needs_you`. Stop; a later tick resumes it when the owner answers.
 
 Deal breakers are always asked, in both modes, and always stop the ticket.
 
 ## 4. When the owner answers
-The tick returns the ticket to this skill with the answer. Fold it into `spec.md`, post a short confirmation in the thread, and queue the ticket.
+The tick returns the ticket to this skill with the answer. Fold it into `<dir>/spec.md`, post a short confirmation in the thread, and queue the ticket.
 
 In dry run, say in the thread what `sf` reported it would have done.

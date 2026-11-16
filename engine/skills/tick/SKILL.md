@@ -23,7 +23,7 @@ Run `/shopfloor:watch <KEY>` for every ticket in `in_review`, oldest first. Do t
 For every active ticket (`sf ticket list`), `sf tracker get <KEY>`. If the opt-in label is gone or a hold label is present, set the stage to `cancelled` with `sf ticket set`, post once in the thread saying you are standing down, and do not touch the ticket again.
 
 ## 4. Interrupted builds
-A ticket in stage `building` while `sf build status` says idle was cut off. Rebuild it once by adding it to this run's queue for step 6. If `history` in `sf ticket show <KEY>` already has two `building` entries, do not build a third time: `sf chat ask` with the last failure as the diagnosis (stage becomes `needs_you`), and log `stopped`.
+A ticket in stage `building` while `sf build status` says idle was cut off. Each build attempt leaves one `building` entry in `history` (the build skill sets that stage when it starts). If `history` in `sf ticket show <KEY>` already has two `building` entries, do not build a third time: `sf chat ask` with the last failure as the diagnosis (stage becomes `needs_you`), and `sf runs log <KEY> stopped`. Otherwise rebuild it once: first `sf ticket set <KEY> --stage planning` and `sf runs log <KEY> interrupted --note "build cut off, rebuilding"`, then add it to this run's queue for step 6. Moving it back to `planning` is what lets the next build record its own `building` entry.
 
 ## 5. New work (skip entirely when paused)
 1. `sf tracker candidates` returns eligible tickets. Take at most `limits.maxNewPerTick`, oldest first.
