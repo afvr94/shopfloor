@@ -204,15 +204,20 @@ class LinearTests(unittest.TestCase):
         self.assertIsNone(base.state_key(CFG, "Nope"))
 
     def test_team_check_reports_each_missing_piece(self):
-        team = {"key": "ENG", "labels": {"nodes": [{"name": "Shopfloor"}]},
-                "states": {"nodes": [{"name": "Todo"}, {"name": "In Progress"}]}}
-        t = make_tracker(CFG, post=FakeLinear([{"teams": {"nodes": [team]}}]))
-        self.assertEqual(t.team_check(), ["workflow state 'In Review' not found in team ENG"])
-        team["labels"]["nodes"] = []
-        t = make_tracker(CFG, post=FakeLinear([{"teams": {"nodes": [team]}}]))
-        self.assertIn("label 'shopfloor' not found in team ENG", t.team_check())
-        t = make_tracker(CFG, post=FakeLinear([{"teams": {"nodes": []}}]))
-        self.assertEqual(t.team_check(), ["team 'ENG' not found"])
+        team = {"key": "ENG", "states": {"nodes": [{"name": "Todo"}, {"name": "In Progress"}]}}
+
+        def check(labels, teams=(team,)):
+            fake = FakeLinear([{"teams": {"nodes": list(teams)}, "issueLabels": {"nodes": labels}}])
+            problems = make_tracker(CFG, post=fake).team_check()
+            self.assertEqual(fake.calls[0][1], {"key": "ENG", "label": "shopfloor"})
+            return problems
+
+        missing_state = ["workflow state 'In Review' not found in team ENG"]
+        self.assertEqual(check([{"name": "Shopfloor", "team": {"key": "ENG"}}]), missing_state)
+        self.assertEqual(check([{"name": "shopfloor", "team": None}]), missing_state)  # workspace label
+        self.assertIn("label 'shopfloor' not found in team ENG", check([{"name": "shopfloor", "team": {"key": "OPS"}}]))
+        self.assertIn("label 'shopfloor' not found in team ENG", check([]))
+        self.assertEqual(check([], teams=()), ["team 'ENG' not found"])
 
     def test_make_tracker(self):
         self.assertIsInstance(make_tracker(CFG, post=FakeLinear([])), linear.LinearTracker)

@@ -24,18 +24,15 @@ from tests.fakes import FakeLinear, FakeSlack
 
 TOKEN = "lin_api_" + "SECRETVALUE123"
 SLACK_TOKEN = "xoxb-" + "abc"
-TEAM = {"key": "ENG", "labels": {"nodes": [{"name": "shopfloor"}]},
-        "states": {"nodes": [{"name": n} for n in ("Todo", "In Progress", "In Review")]}}
+TEAM = {"key": "ENG", "states": {"nodes": [{"name": n} for n in ("Todo", "In Progress", "In Review")]}}
 
 
 def linear_answer(label=True):
     def answer(query, variables):
         if "viewer" in query:
             return {"viewer": {"name": "Bot"}}
-        team = json.loads(json.dumps(TEAM))
-        if not label:
-            team["labels"]["nodes"] = []
-        return {"teams": {"nodes": [team]}}
+        labels = [{"name": "shopfloor", "team": {"key": "ENG"}}] if label else []
+        return {"teams": {"nodes": [TEAM]}, "issueLabels": {"nodes": labels}}
     return answer
 
 

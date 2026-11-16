@@ -64,6 +64,13 @@ class PathSafetyTest(Base):
         self.assertIn("schedule.start", out)
 
 
+    def test_team_must_look_like_a_team_key_and_is_never_echoed(self):
+        token = "lin_api_" + "x" * 40
+        out = self.errors(lambda c: c["tracker"]["linear"].__setitem__("team", token))
+        self.assertIn("tracker.linear.team", out)
+        self.assertNotIn(token, out)
+
+
 class ConfigTest(Base):
     def test_example_config_loads_with_defaults(self):
         (self.home / "crews").mkdir()

@@ -52,6 +52,7 @@ PLAIN_STYLE = "Plain, neutral and brief. No jokes, slang or emoji."
 ID_RE = paths.CREW_ID_RE
 HHMM_RE = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 GITHUB_RE = re.compile(r"[\w.-]+/[\w.-]+")
+TEAM_RE = re.compile(r"[A-Za-z][A-Za-z0-9]{0,9}")
 MOVE_RE = re.compile(r"^(\w+)->(\w+)$")
 
 
@@ -86,6 +87,10 @@ def validate(cfg: dict) -> list[str]:
         errs.append("id must match ^[a-z0-9][a-z0-9-]{0,30}$")
     if d("tracker").get("type") != "linear":
         errs.append("tracker.type must be 'linear'")
+    lin = d("tracker").get("linear")
+    team = lin.get("team") if isinstance(lin, dict) else None
+    if team is not None and not (isinstance(team, str) and TEAM_RE.fullmatch(team)):  # never echo it: a pasted token lands here too
+        errs.append("tracker.linear.team must be a Linear team key, the prefix of its issue ids (like ENG)")
     if d("chat").get("type") != "slack":
         errs.append("chat.type must be 'slack'")
     flow = d("gitFlow")
