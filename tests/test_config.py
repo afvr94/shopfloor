@@ -178,6 +178,7 @@ class SecretTest(Base):
 
     def test_read_secret_ok(self):
         self.assertEqual(config.read_secret(self.write("tok\n", 0o600)), "tok")
+        self.assertEqual(config.read_secret(self.write("tok\n", 0o400)), "tok")
 
     def test_read_secret_refuses_world_readable(self):
         p = self.write("s3cr3t-value", 0o644)

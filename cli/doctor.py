@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -61,13 +62,25 @@ def version_problem(out: str) -> str | None:
 
 
 def _secret_row(label: str, path: str) -> Row:
-    def check():
-        try:
-            mode = os.stat(os.path.expanduser(path)).st_mode
-        except OSError:
-            return f"{path} is missing or unreadable"
-        return f"{path} must be mode 0600 (chmod 600 it)" if mode & 0o077 else None
-    return _guarded(f"{label} secret", check)
+    """0400 as sf writes it passes; 0600, a file you wrote by hand, passes with a warning; anything looser fails."""
+    try:
+        mode = stat.S_IMODE(os.stat(os.path.expanduser(path)).st_mode)
+    except OSError:
+        return (False, f"{label} secret", f"{path} is missing or unreadable")
+    if mode & 0o077:
+        return (False, f"{label} secret", f"{path} must be mode 0400 or 0600 (chmod 400 it)")
+    return (True, f"{label} secret", "" if mode == 0o400 else f"warning: {path} is {mode:04o}; chmod 400 it")
+
+
+def _secrets_dir_problem() -> str | None:
+    d = state.secrets_dir()
+    try:
+        st = os.lstat(d)
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISDIR(st.st_mode) or stat.S_IMODE(st.st_mode) != state.LOCKED_DIR:
+        return f"{d} must be a folder with mode 0500 (chmod 500 it; any shopfloor run or sf call relocks it)"
+    return None
 
 
 def _repo_rows(cid: str, cfg: dict, deps: dict) -> list[Row]:
@@ -258,6 +271,7 @@ def check_all(crew_id: str | None, deps: dict | None = None, during_init: bool =
     absent = [t for t in tools if not which(t)]
     rows.append((not absent, "sandbox", f"{', '.join(absent)} missing: {hint}" if absent else ""))
     rows.append(_guarded("signing key", signing.key_problem))
+    rows.append(_guarded("secrets folder", _secrets_dir_problem))
     try:
         board = config.load_board()
         rows.append((True, "board config", ""))
@@ -274,5 +288,5 @@ def check_all(crew_id: str | None, deps: dict | None = None, during_init: bool =
 
 def report(rows: list[Row], out=print) -> int:
     for ok, name, detail in rows:
-        out(f"✓ {name}" if ok else f"✗ {name}: {detail}")
+        out((f"✓ {name}: {detail}" if detail else f"✓ {name}") if ok else f"✗ {name}: {detail}")
     return 0 if all(ok for ok, _, _ in rows) else 1

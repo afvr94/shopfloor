@@ -179,7 +179,7 @@ class Init(Base):
     def installer():
         return SimpleNamespace(install_board=mock.Mock(), install_crew=mock.Mock())
 
-    def test_init_writes_config_and_0600_secrets(self):
+    def test_init_writes_config_and_0400_secrets_in_a_locked_folder(self):
         inst = self.installer()
         code, out = self.wizard(inst)
         self.assertEqual(code, 0)
@@ -189,7 +189,8 @@ class Init(Base):
         self.assertIs(cfg["dryRun"], True)
         for key in ("tracker", "chat"):
             f = Path(cfg[key]["tokenFile"])
-            self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o400)
+            self.assertEqual(stat.S_IMODE(f.parent.stat().st_mode), 0o500)
             self.assertNotIn(f.read_text(), raw)
         self.assertEqual(json.loads((paths.shopfloor_home() / "board.json").read_text())["crews"], ["demo"])
         inst.install_board.assert_called_once()
@@ -204,7 +205,7 @@ class Init(Base):
         sec.write_text("old")
         os.chmod(sec, 0o644)
         self.assertEqual(self.wizard(self.installer())[0], 0)
-        self.assertEqual(stat.S_IMODE(sec.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(sec.stat().st_mode), 0o400)
         self.assertEqual(sec.read_text().strip(), "lin_TOK")
         again = self.installer()
         self.assertEqual(self.wizard(again)[0], 1)

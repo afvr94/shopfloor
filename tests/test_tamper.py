@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import multiprocessing
 import os
 import signal
@@ -79,7 +81,10 @@ class WindowReplay(Base):
             state.save_ticket("crew", "ENG-1", stage="building")  # what `sf ticket set` calls: it can't clear it
         self.assertTrue(state.load_ticket("crew", "ENG-1")["tampered"])
         self.assertIn("repair-tamper crew", doctor._markers_problem("crew"))
-        self.assertEqual(cli_main.main(["doctor", "--repair-tamper", "crew"]), 0)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(cli_main.main(["doctor", "--repair-tamper", "crew"]), 0)
+        self.assertIn("cleared", out.getvalue())
         self.assertFalse(state.marker(self.ts / "state.json").exists())
         self.assertIsNone(doctor._markers_problem("crew"))
         # the owner checked it: the replayed copy is still sf-signed, and reads again once relocked to 0400

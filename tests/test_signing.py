@@ -84,7 +84,9 @@ class Key(Home):
                 os.chmod(p.parent, 0o700)
                 for f in os.listdir(p.parent):
                     os.unlink(p.parent / f)
-                os.rmdir(p.parent)
+                with state.unlocked(p.parent.parent) as declared:  # secrets/ is locked too
+                    declared["signing"] = None
+                    os.rmdir(p.parent)
                 signing.mac("s", {})
 
     def test_concurrent_first_uses_agree_on_one_key(self):

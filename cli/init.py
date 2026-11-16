@@ -12,11 +12,8 @@ DOCS = ("docs/setup-linear.md", "docs/setup-slack.md", "examples/slack-app-manif
 
 
 def write_secret(path: Path, value: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(value + "\n")
-    os.chmod(path, 0o600)  # O_CREAT's mode is ignored when the file already exists
+    """Written 0400 into the secrets folder, which is open (0700) only for this write and 0500 again after."""
+    state.atomic_write(path, value + "\n")
 
 
 def read_secret(secret, prompt: str) -> str:

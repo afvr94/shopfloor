@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -194,6 +195,24 @@ class Doctor(unittest.TestCase):
                     self.assertIn(want, row[2])
         self.missing.add("claude")
         self.assertNotIn("claude version", [r[1] for r in self.rows()])
+
+    def test_secrets_folder_and_token_modes(self):
+        rows = {n: (ok, d) for ok, n, d in self.rows()}
+        self.assertEqual(rows["secrets folder"], (True, ""))
+        self.assertEqual(rows["demo: tracker secret"], (True, ""))
+        os.chmod(self.secrets["linear"], 0o600)  # written by hand: passes, with a warning
+        ok, detail = {n: (ok, d) for ok, n, d in self.rows()}["demo: tracker secret"]
+        self.assertTrue(ok)
+        self.assertIn("warning", detail)
+        out = []
+        doctor.report(self.rows(), out.append)
+        self.assertTrue(any(line.startswith("✓ demo: tracker secret: warning") for line in out), out)
+        os.chmod(state.secrets_dir(), 0o700)
+        self.assertIn("secrets folder", self.failing(self.rows()))
+        state.relock_all("demo")
+        self.assertEqual(stat.S_IMODE(os.stat(state.secrets_dir()).st_mode), 0o500)
+        self.assertEqual(stat.S_IMODE(os.stat(self.secrets["linear"]).st_mode), 0o400)
+        self.assertNotIn("secrets folder", self.failing(self.rows()))
 
     def test_a_damaged_signing_key_fails_its_row(self):
         signing.mac("s", {})

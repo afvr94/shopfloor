@@ -42,9 +42,10 @@ def _rel(folder) -> tuple:
 
 
 def is_locked(folder) -> bool:
-    """<state>/<crew>, its ticketstate folder and each ticketstate/<KEY>."""
+    """<state>/<crew>, its ticketstate folder, each ticketstate/<KEY>, and <home>/secrets."""
     parts = _rel(folder)
-    return parts[:1] == ("state",) and (len(parts) == 2 or (len(parts) in (3, 4) and parts[2] == "ticketstate"))
+    return parts == ("secrets",) or (
+        parts[:1] == ("state",) and (len(parts) == 2 or (len(parts) in (3, 4) and parts[2] == "ticketstate")))
 
 
 def _entries(fd: int) -> dict:
@@ -227,13 +228,20 @@ def _sweep(folder: Path, fix: bool) -> list[str]:
     return loose
 
 
+def secrets_dir() -> Path:
+    return paths.shopfloor_home() / "secrets"
+
+
 def _sweep_all(crew_id: str, fix: bool) -> list[str]:
-    return [x for f in locked_folders(crew_id) for x in _sweep(f, fix)]
+    folders = locked_folders(crew_id)
+    if secrets_dir().is_dir() and not secrets_dir().is_symlink():
+        folders.append(secrets_dir())
+    return [x for f in folders for x in _sweep(f, fix)]
 
 
 def relock_all(crew_id: str) -> None:
-    """Relock what a crash mid-window or a hand edit left open: every locked folder and file of the crew. Cheap
-    enough to run at every start."""
+    """Relock what a crash mid-window or a hand edit left open: every locked folder and file of the crew, and the
+    secrets folder with its token files. Cheap enough to run at every start."""
     _sweep_all(crew_id, fix=True)
 
 

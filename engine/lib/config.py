@@ -171,7 +171,7 @@ def read_secret(path: str) -> str:
     except OSError:
         raise ConfigError(f"secret file {p} is missing or unreadable") from None
     if mode & 0o077:
-        raise ConfigError(f"secret file {p} must be mode 0600 (chmod 600 it)")
+        raise ConfigError(f"secret file {p} must be mode 0400 or 0600 (chmod 400 it)")
     try:
         value = p.read_text().strip()
     except OSError:

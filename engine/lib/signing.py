@@ -10,7 +10,6 @@ from one file into another fails too.
 """
 from __future__ import annotations
 
-import contextlib
 import fcntl
 import hashlib
 import hmac
@@ -37,10 +36,9 @@ def key_path():
 
 
 def _create(p) -> None:
-    d = p.parent
-    d.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with contextlib.suppress(FileExistsError):
-        os.mkdir(d, 0o700)
+    from . import state  # state imports this module
+
+    d = state.make_dir(p.parent)  # secrets/ is a locked folder: made inside its own window
     fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)  # a second first use waits, then finds the key
