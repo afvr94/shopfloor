@@ -10,4 +10,6 @@ Mermaid 11.4.1 - MIT License
 Nunito - SIL Open Font License 1.1
 Pixelify Sans - SIL Open Font License 1.1
 
-Copyright holders for the bundled assets: TODO (fill in when the assets are added)
+Copyright for the bundled assets belongs to their respective authors: the Mermaid
+contributors, the DOMPurify and KaTeX authors, and the authors of the Nunito and
+Pixelify Sans font families (full license text in board/static/fonts/OFL.txt).
