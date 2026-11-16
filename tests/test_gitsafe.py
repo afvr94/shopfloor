@@ -55,6 +55,18 @@ class RefusalTest(Case):
                          ["credential.helper=", "credential.helper=osxkeychain"])
         self.assertIn("core.hooksPath=/dev/null", flags)
 
+    def test_url_scoped_helpers_survive_the_reset(self):
+        g = self.root / "global.cfg"
+        g.write_text('[credential "https://github.com"]\n\thelper =\n\thelper = !/x/gh auth git-credential\n')
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(g)}):
+            flags = gitsafe.flags()
+        self.assertEqual([f for f in flags if f.startswith("credential.")],
+                         ["credential.helper=", "credential.https://github.com.helper=!/x/gh auth git-credential"])
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": str(g), "GIT_CONFIG_NOSYSTEM": "1"}
+        out = subprocess.run(["git", *flags, "config", "--get-urlmatch", "credential.helper", "https://github.com"],
+                             capture_output=True, text=True, env=env, cwd="/").stdout
+        self.assertEqual(out.strip(), "!/x/gh auth git-credential")
+
 
 def _sources():
     for d in ("engine", "cli", "board"):

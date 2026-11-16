@@ -40,11 +40,15 @@ def _refuse(p) -> None:
 
 
 def flags() -> list[str]:
-    # read from "/" so no repo config takes part; the user's own global helper keeps HTTPS pushes working
-    helpers = run(["git", "config", "--global", "--get-all", "credential.helper"], cwd="/",
-                  env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1"}, check=False).splitlines()
+    # Read from "/" so no repo config takes part. The empty helper resets every helper git has seen so far,
+    # URL-scoped ones too (gh auth setup-git writes credential.https://github.com.helper), so the user's
+    # global helpers are pinned again after it to keep HTTPS pushes working.
+    found = run(["git", "config", "--global", "--null", "--get-regexp", r"^credential\..*helper$"], cwd="/",
+                env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1"}, check=False)
+    helpers = [e.split("\n", 1) for e in found.split("\0") if e]
     pinned = ["core.hooksPath=/dev/null", "core.fsmonitor=false", "core.sshCommand=ssh", "credential.helper=",
-              *(f"credential.helper={h}" for h in helpers if h), "core.pager=cat", "protocol.ext.allow=never",
+              *(f"{kv[0]}={kv[1]}" for kv in helpers if len(kv) == 2 and kv[1]), "core.pager=cat",
+              "protocol.ext.allow=never",
               "submodule.recurse=false", "fetch.recurseSubmodules=false"]
     return [x for kv in pinned for x in ("-c", kv)]
 
