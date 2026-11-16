@@ -418,8 +418,12 @@ class Guard:
         d = cwd
         while d and not self.branch_unknown and _under(d, self.crew_dirs[:1]):
             g = os.path.join(d, ".git")
-            if os.path.lexists(g):
-                wts = self.crew_dirs[0]
+            wts = self.crew_dirs[0]
+            try:
+                found = crewfs.exists(wts, os.path.relpath(g, wts))
+            except OSError:
+                return None
+            if found:
                 try:
                     head = crewfs.read_bytes(wts, os.path.relpath(os.path.join(g, "HEAD"), wts), 512).decode().strip()
                 except (OSError, ValueError):

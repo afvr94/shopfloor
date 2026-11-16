@@ -247,29 +247,66 @@ class Probes(unittest.TestCase):
 
 
 ROOT = Path(__file__).resolve().parent.parent
-CREW_PATHS = ("ticket_dir", "tickets_dir", "worktrees_dir", "crew_dirs", '"tickets"', '"worktrees"')
+# Code that runs outside the sandbox: sf, the guard, the board, the runner and doctor.
+SCANNED = ("engine/lib", "engine/adapters", "engine/hooks", "board", "cli")
+CREW_PATHS = ("ticket_dir", "tickets_dir", "worktrees_dir", "crew_dir", '"tickets"', "'tickets'", '"worktrees"',
+              "'worktrees'", "/tickets", "/worktrees")
 FILE_CALLS = {"open", "read_text", "read_bytes", "write_text", "write_bytes", "mkdir", "makedirs", "rename",
-              "replace", "unlink", "touch", "symlink_to", "copy", "copy2", "copyfile", "copyfileobj"}
-# These two create the write roots themselves, inside the crew state dir that only sf writes.
-ALLOWED = {("cli/init.py", "ensure_dirs"), ("engine/lib/runner.py", "claude_cwd")}
+              "replace", "unlink", "remove", "rmdir", "touch", "symlink_to", "copy", "copy2", "copyfile",
+              "copyfileobj", "copytree", "move", "rmtree", "iterdir", "listdir", "scandir", "walk", "glob", "iglob",
+              "rglob", "stat", "lstat", "exists", "lexists", "is_file", "is_dir", "is_symlink", "isfile", "isdir",
+              "islink", "readlink"}
+# The system temp dir is a crew write root: a file sf leaves there can be swapped before another program opens it.
+TEMP_CALLS = {"gettempdir", "mkstemp", "mkdtemp", "NamedTemporaryFile", "TemporaryFile", "TemporaryDirectory",
+              "SpooledTemporaryFile"}
+ALLOWED = {
+    ("cli/init.py", "ensure_dirs"): "creates the write roots themselves, inside the state dir only sf writes",
+    ("engine/lib/runner.py", "claude_cwd"): "creates the worktrees root itself, inside sf's state dir",
+    ("engine/lib/runner.py", "claude_invocation"): "names the temp dir as a sandbox write root; opens nothing",
+    ("engine/lib/cli.py", "_write_roots"): "names the temp dir as a read root; reads go through crewfs",
+    ("engine/lib/state.py", "atomic_write"): "mkstemp(dir=) next to sf's own record, never in the temp dir",
+    ("engine/lib/transport.py", "scratch"): "TemporaryDirectory(dir=) under sf's transport dir",
+    ("engine/lib/paths.py", "crew_state_dir"): "creates <state>/<crew>, which only sf writes",
+    ("board/state.py", "crew_state"): "is_dir on <state>/<crew> itself, which only sf writes",
+    ("board/listener.py", "_poll_crew"): "is_dir on <state>/<crew>; its cursor file there is the listener's",
+    ("cli/doctor.py", "_crew_rows"): "is_dir on the write roots themselves, in sf's state dir; nothing inside them",
+    ("cli/doctor.py", "live_smoke"): "a private temp dir for one smoke session; sf only checks a marker in it",
+}
 
 
 def offenders(src: str) -> list[str]:
-    """Functions that name a crew write root and also touch files directly instead of through crewfs."""
+    """Functions that touch files under a crew write root other than through crewfs, or use the system temp dir."""
     tree, out = ast.parse(src), []
     for fn in ast.walk(tree):
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        if not any(w in ast.get_source_segment(src, fn) for w in CREW_PATHS):
-            continue
+        crew = any(w in ast.get_source_segment(src, fn) for w in CREW_PATHS)
         for c in ast.walk(fn):
             f = getattr(c, "func", None)
             name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
             via_crewfs = isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id == "crewfs"
-            if isinstance(c, ast.Call) and name in FILE_CALLS and not via_crewfs:
+            if isinstance(c, ast.Call) and not via_crewfs and (name in TEMP_CALLS or crew and name in FILE_CALLS):
                 out.append(fn.name)
                 break
     return out
+
+
+# Ways around the first, narrower scan, each of which must now be caught.
+COUNTER_EXAMPLES = {
+    "rmtree": "def f(c, k):\n    shutil.rmtree(paths.worktrees_dir(c) / k)\n",
+    "iterdir": "def f(c):\n    return [p.name for p in paths.tickets_dir(c).iterdir()]\n",
+    "single quotes": "def f(home, k):\n    return os.listdir(os.path.join(home, 'tickets', k))\n",
+    "glob via crew_dir": "def f(c):\n    return glob.glob(str(paths.crew_dir(c) / 'worktrees' / '*'))\n",
+    "exists": "def f(c, k):\n    return os.path.exists(paths.ticket_dir(c, k) / 'state.json')\n",
+    "temp file": "def f(body):\n    fd, name = tempfile.mkstemp(suffix='.md')\n    return name\n",
+    "walk": "def f(c):\n    return list(os.walk(paths.worktrees_dir(c)))\n",
+    "scandir": "def f(c):\n    return list(os.scandir(f'{paths.crew_dir(c)}/tickets'))\n",
+    "copytree": "def f(c, d):\n    shutil.copytree(paths.ticket_dir(c, 'K'), d)\n",
+    "move": "def f(c, d):\n    shutil.move(d, paths.tickets_dir(c))\n",
+    "stat": "def f(c):\n    return paths.worktrees_dir(c).stat()\n",
+    "gettempdir": "def f():\n    return Path(tempfile.gettempdir()) / 'body.md'\n",
+    "NamedTemporaryFile": "def f():\n    return tempfile.NamedTemporaryFile(suffix='.md').name\n",
+}
 
 
 class Static(unittest.TestCase):
@@ -277,15 +314,24 @@ class Static(unittest.TestCase):
         self.assertEqual(offenders("def f(c):\n    return (paths.ticket_dir(c, 'K') / 'x').read_text()\n"), ["f"])
         self.assertEqual(offenders("def f(c):\n    return crewfs.read_bytes(paths.tickets_dir(c), 'K/x')\n"), [])
 
+    def test_the_scan_catches_every_counter_example(self):
+        for what, src in COUNTER_EXAMPLES.items():
+            with self.subTest(what):
+                self.assertEqual(offenders(src), ["f"])
+
     def test_only_crewfs_touches_files_under_the_crew_write_roots(self):
-        bad = []
-        for d in ("engine", "board", "cli"):
+        bad, seen = [], set()
+        for d in SCANNED:
             for f in sorted((ROOT / d).rglob("*.py")):
                 rel = f.relative_to(ROOT).as_posix()
                 if f.name.startswith("test_") or rel == "engine/lib/crewfs.py":
                     continue
-                bad += [f"{rel}:{fn}" for fn in offenders(f.read_text()) if (rel, fn) not in ALLOWED]
+                for fn in offenders(f.read_text()):
+                    seen.add((rel, fn))
+                    if (rel, fn) not in ALLOWED:
+                        bad.append(f"{rel}:{fn}")
         self.assertEqual(bad, [])
+        self.assertEqual(set(ALLOWED) - seen, set(), "allowlist entries that no longer match anything")
 
 
 if __name__ == "__main__":
