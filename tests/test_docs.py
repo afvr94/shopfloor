@@ -54,7 +54,8 @@ class Docs(unittest.TestCase):
         text = (ROOT / "docs" / "SAFETY.md").read_text().lower()
         for topic in ("pr-only", "squash-on-green", "merge-to-test-branch", "dry run", "guard",
                       "not a sandbox", "branch protection", "unattended", "127.0.0.1", "never expose",
-                      "bubblewrap", "resume"):
+                      "bubblewrap", "resume", "ticketstate", "o_nofollow", "bundlemaxmb",
+                      "claude code's own hardening"):
             self.assertIn(topic, text)
 
 
