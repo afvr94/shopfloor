@@ -4,6 +4,7 @@ import ast
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -111,6 +112,22 @@ class Hygiene(unittest.TestCase):
                 if ATTRIBUTION.search(line):
                     hits.append(f"{rel}:{n}")
         self.assertEqual(hits, [])
+
+
+class ScrubCheck(unittest.TestCase):
+    def scrub(self, text):
+        with tempfile.NamedTemporaryFile("w", suffix=".txt") as f:
+            f.write(text)
+            f.flush()
+            return subprocess.run(["sh", str(ROOT / "scripts" / "scrub-check.sh"), f.name], cwd=ROOT,
+                                  capture_output=True, text=True, timeout=60)
+
+    def test_blank_and_whitespace_lines_match_nothing(self):
+        r = self.scrub("\n   \n\t\n" + "zzqx-" + "absent-qq\n")
+        self.assertEqual((r.returncode, r.stdout), (0, ""))
+
+    def test_real_entry_still_hits(self):
+        self.assertEqual(self.scrub("\n  \nShopfloor\n").returncode, 1)
 
 
 if __name__ == "__main__":
