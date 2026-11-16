@@ -12,7 +12,7 @@ Unattended and repeatable: every step must be safe to run twice. Load `/shopfloo
    - `pause` runs `sf pause`.
    - `resume` runs `sf resume`. Never resume on your own initiative, only when an owner `resume` command is pending.
    - `lesson` runs `sf lessons add`; `forget` runs `sf lessons forget`.
-   - `answer` on a ticket in `needs_you` returns it to the stage before `needs_you`: read `history` in `sf ticket show <KEY>`, take the stage entry just before the latest `needs_you`, set it with `sf ticket set <KEY> --stage <stage>`, and say so in the thread.
+   - `answer` on a ticket in `needs_you` returns it to the stage before `needs_you`: read `history` in `sf ticket show <KEY>`, take the stage entry just before the latest `needs_you`, set it with `sf ticket set <KEY> --stage <stage>`, and say so in the thread. If that stage was `building` or `planning`, set `planning` instead and add the key to this run's queue for step 6; never set `building` yourself, the build skill does that when it starts.
 2. `sf commands ack <seq>` after the last one you applied.
 3. `sf config` again: `paused` may have changed.
 
@@ -23,7 +23,7 @@ Run `/shopfloor:watch <KEY>` for every ticket in `in_review`, oldest first. Do t
 For every active ticket (`sf ticket list`), `sf tracker get <KEY>`. If the opt-in label is gone or a hold label is present, set the stage to `cancelled` with `sf ticket set`, post once in the thread saying you are standing down, and do not touch the ticket again.
 
 ## 4. Interrupted builds
-A ticket in stage `building` while `sf build status` says idle was cut off. Each build attempt leaves one `building` entry in `history` (the build skill sets that stage when it starts). If `history` in `sf ticket show <KEY>` already has two `building` entries, do not build a third time: `sf chat ask` with the last failure as the diagnosis (stage becomes `needs_you`), and `sf runs log <KEY> stopped`. Otherwise rebuild it once: first `sf ticket set <KEY> --stage planning` and `sf runs log <KEY> interrupted --note "build cut off, rebuilding"`, then add it to this run's queue for step 6. Moving it back to `planning` is what lets the next build record its own `building` entry.
+A ticket in stage `building` while `sf build status` says idle was cut off. Each build attempt leaves one `building` entry in `history` (the build skill sets that stage when it starts). If `history` in `sf ticket show <KEY>` already has two `building` entries after its most recent `needs_you` entry (all of them if there is none), do not build a third time: `sf chat ask` with the last failure as the diagnosis (stage becomes `needs_you`), and `sf runs log <KEY> stopped`. Otherwise rebuild it once: first `sf ticket set <KEY> --stage planning` and `sf runs log <KEY> interrupted --note "build cut off, rebuilding"`, then add it to this run's queue for step 6. Moving it back to `planning` is what lets the next build record its own `building` entry.
 
 ## 5. New work (skip entirely when paused)
 1. `sf tracker candidates` returns eligible tickets. Take at most `limits.maxNewPerTick`, oldest first.
