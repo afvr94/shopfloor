@@ -545,7 +545,8 @@ class Guard:
 
     def sf(self, words: list):
         # every sf option takes a value, so the word after one is never a positional
-        pos = [w for k, w in enumerate(words[1:], 1) if not w.startswith("-") and not (words[k - 1].startswith("--") and "=" not in words[k - 1])]
+        pos = [w for k, w in enumerate(words[1:], 1)
+               if not w.startswith("-") and not (words[k - 1].startswith("--") and "=" not in words[k - 1])]
         if any(_dynamic(p) for p in pos):
             block("can't check an sf command built at run time")
         a, b = (pos + ["", ""])[:2]
