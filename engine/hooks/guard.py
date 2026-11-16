@@ -544,8 +544,9 @@ class Guard:
         block("crews don't run gh; use sf pr view, sf pr log, sf pr reply, sf ship or sf merge")
 
     def sf(self, words: list):
-        pos = [w for w in words[1:] if not w.startswith("-")]
-        if any(_dynamic(p) for p in pos[:5]):
+        # every sf option takes a value, so the word after one is never a positional
+        pos = [w for k, w in enumerate(words[1:], 1) if not w.startswith("-") and not (words[k - 1].startswith("--") and "=" not in words[k - 1])]
+        if any(_dynamic(p) for p in pos):
             block("can't check an sf command built at run time")
         a, b = (pos + ["", ""])[:2]
         # in dry run sf itself refuses writes and logs the "would" line, so the crew sees what it would have done

@@ -370,6 +370,8 @@ ROWS = [
     ("sf push", BASH, "sf push ENG-1 app", {}, "wt", False),
     ("sf push dry run (sf refuses it)", BASH, "sf push ENG-1 app", DRY, "wt", False),
     ("sf push dynamic repo", BASH, "sf push ENG-1 $REPO", {}, "wt", True),
+    ("sf pr reply dynamic number after --opt=", BASH, "sf pr reply ENG-1 app --body-file=r.md $N", {}, "wt", True),
+    ("sf runs log with a run-time note", BASH, "sf runs log ENG-1 stopped --note \"$WHY\"", {}, "wt", False),
     ("sf sync", BASH, "sf sync ENG-1 app", {}, "wt", False),
     ("sf pr view", BASH, "sf pr view ENG-1", {}, "wt", False),
     ("sf pr log", BASH, "sf pr log ENG-1 12345", {}, "wt", False),
