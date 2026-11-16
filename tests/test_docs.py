@@ -55,7 +55,8 @@ class Docs(unittest.TestCase):
         for topic in ("pr-only", "squash-on-green", "merge-to-test-branch", "dry run", "guard",
                       "not a sandbox", "branch protection", "unattended", "127.0.0.1", "never expose",
                       "bubblewrap", "resume", "ticketstate", "o_nofollow", "bundlemaxmb",
-                      "claude code's own hardening"):
+                      "claude code's own hardening", "hmac-sha256", "record tampered", "--body-file -",
+                      "detect a write, they don't prevent it"):
             self.assertIn(topic, text)
 
 
