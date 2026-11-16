@@ -103,7 +103,7 @@ class Hygiene(unittest.TestCase):
         hits = []
         for path in _tracked_files():
             rel = path.relative_to(ROOT).as_posix()
-            if rel == "LICENSE" or rel.startswith(("tests/", "scripts/", "board/static/")):
+            if rel in ("LICENSE", "THIRD_PARTY_LICENSES") or rel.startswith(("tests/", "scripts/", "board/static/")):
                 continue
             text = _text(path)
             if text is None:

@@ -1,6 +1,6 @@
 # Shopfloor
 
-Shopfloor turns tickets into pull requests. A crew watches a Linear team for tickets carrying an opt-in label, plans each one in a Slack thread, builds it in an isolated git worktree with Claude Code, opens a pull request, and tends it until you merge it. You stay in the loop through the Slack thread and a local board.
+Shopfloor turns tickets into pull requests. A crew watches a Linear team for tickets carrying an opt-in label, plans each one in a Slack thread, builds it in its own clone of the repo with Claude Code, opens a pull request, and tends it until you merge it. You stay in the loop through the Slack thread and a local board.
 
 It is plain Python (standard library only) plus Claude Code skills. A crew wakes on a schedule (launchd on macOS, systemd on Linux), runs one tick, and exits.
 
@@ -53,6 +53,7 @@ Every new crew starts with `"dryRun": true`. In dry run the crew chats and build
 | --- | --- |
 | `shopfloor init` | Setup wizard for one crew. |
 | `shopfloor doctor [crew]` | Check tools, sandbox support, secrets, Linear, Slack, repos and branch protection. |
+| `shopfloor doctor --live [crew]` | Also start one real sandboxed crew session in a temp folder (uses your Claude plan). |
 | `shopfloor install [crew]` | Install the board service and each crew's schedule. |
 | `shopfloor uninstall` | Remove the installed services. |
 | `shopfloor run <crew>` | Run one tick now. |

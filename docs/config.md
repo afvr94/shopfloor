@@ -55,7 +55,7 @@ Required for `shopfloor install` to install the crew's timer.
 | `repos.<name>` | object | | A repo the crew may work in. |
 | `repos.<name>.github` | string | required | `owner/name` on GitHub. `doctor` checks that the checkout's `origin` matches. |
 | `repos.<name>.base` | string | required | Branch pull requests target. |
-| `repos.<name>.path` | string | required | Local checkout. Crews work in separate worktrees, never in this directory. |
+| `repos.<name>.path` | string | required | Local checkout. Crews work in their own full clone of it per ticket, never in this directory; it is only read and fetched. |
 
 ### `tracker`
 
@@ -103,7 +103,7 @@ What a crew may do with a pull request once it is open. See [SAFETY.md](SAFETY.m
 | --- | --- | --- | --- |
 | `guard` | object | | Extra limits for the crew's tool guard. |
 | `guard.offLimits` | string[] | `[]` | Paths the crew may not read or write (treated like secrets). |
-| `guard.secretFiles` | string[] | `[]` | Extra files treated like secrets: never read or written by the crew. |
+| `guard.secretFiles` | string[] | credential defaults | Files treated like secrets: never read or written by the crew, in the guard and in the sandbox's deny-read list. The defaults are `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.docker/config.json`, `~/.kube`, `~/.gnupg`, `~/.claude/.credentials.json` and `~/.claude.json`; entries you list add to them. |
 
 ## Board
 
