@@ -14,7 +14,7 @@ from urllib.parse import quote
 from engine.adapters.chat import make_chat
 from engine.adapters.tracker import make_tracker
 from engine.hooks.guard import decide
-from engine.lib import config, paths, proc, runner, state
+from engine.lib import config, gitsafe, paths, proc, runner, state
 from engine.lib.redact import redact
 
 Row = tuple[bool, str, str]
@@ -103,6 +103,11 @@ def live_smoke(cid: str) -> str | None:
     return None
 
 
+def ls_remote(path: str, base: str) -> str | None:
+    """Reach origin with the same pinned git sf pushes with, outside any sandbox."""
+    return None if gitsafe.raw(path, "ls-remote", "--heads", "origin", base) else f"origin has no {base} branch"
+
+
 def _crew_rows(cid: str, deps: dict, live: bool = False) -> list[Row]:
     try:
         cfg = config.load_crew(cid)
@@ -123,6 +128,8 @@ def _crew_rows(cid: str, deps: dict, live: bool = False) -> list[Row]:
     missing = [d for d in ("worktrees", "tickets") if not (paths.crew_dir(cid) / d).is_dir()]
     rows.append((not missing, f"{cid}: crew dirs", f"missing {', '.join(missing)} (run shopfloor install)" if missing else ""))
     if live:
+        for name, r in cfg["repos"].items():
+            rows.append(_guarded(f"{cid}: git ls-remote {name}", lambda r=r: deps["lsremote"](r["path"], r["base"])))
         rows.append(_guarded(f"{cid}: live sandbox session", lambda: deps["smoke"](cid)))
     return rows
 
@@ -130,7 +137,7 @@ def _crew_rows(cid: str, deps: dict, live: bool = False) -> list[Row]:
 def check_all(crew_id: str | None, deps: dict | None = None, during_init: bool = False,
               live: bool = False) -> list[Row]:
     d = {"which": shutil.which, "run": proc.run, "tracker": make_tracker, "chat": make_chat, "health": _health,
-         "smoke": live_smoke}
+         "smoke": live_smoke, "lsremote": ls_remote}
     d.update(deps or {})
     which = d["which"]
     rows: list[Row] = [
