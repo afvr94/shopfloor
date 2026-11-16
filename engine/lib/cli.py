@@ -196,6 +196,8 @@ def h_ticket_set(a, cfg):
         name, sep, value = f.partition("=")
         if not sep:
             raise Usage(f"--field needs name=value, got {f!r}")
+        if name == "branch":
+            raise Refused("sf picks the ticket branch at sf worktree prepare; read it from sf ticket show")
         changes[name] = json.loads(value) if name in ("prs", "thread") else int(value) if name == "fixRounds" else value
     if a.stage:
         changes["stage"] = a.stage
@@ -233,12 +235,13 @@ def h_briefing_url(a, cfg):
 
 
 def h_wt_prepare(a, cfg):
+    """The branch is sf's: recorded at the first prepare from the key and title, and only ever read back."""
     _repo(cfg, a.repo)
     t = state.load_ticket(cfg["id"], a.key)
-    branch = a.branch or t["branch"] or worktrees.branch_name(a.key, t["title"])
-    wt = worktrees.prepare(cfg, a.key, a.repo, branch)
-    state.save_ticket(cfg["id"], a.key, branch=branch)
-    print(wt)
+    branch = t["branch"] or worktrees.branch_name(a.key, t["title"])
+    if not t["branch"]:
+        state.save_ticket(cfg["id"], a.key, branch=branch)
+    print(worktrees.prepare(cfg, a.key, a.repo, branch))
 
 
 def h_wt_remove(a, cfg):
@@ -432,7 +435,7 @@ def _spec():
                                              (("--source",), {"required": True})]),
         ("briefing", "write", h_briefing_write, [k, (("file",), {})]),
         ("briefing", "url", h_briefing_url, [k]),
-        ("worktree", "prepare", h_wt_prepare, [k, (("repo",), {}), (("--branch",), {})]),
+        ("worktree", "prepare", h_wt_prepare, [k, (("repo",), {})]),
         ("worktree", "remove", h_wt_remove, [k]),
         ("ship", "", h_ship, [k, (("repo",), {}), (("--title",), {"required": True}),
                               (("--body-file",), {"required": True})]),

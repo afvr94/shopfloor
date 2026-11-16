@@ -113,6 +113,14 @@ class Skills(unittest.TestCase):
             self.assertIn("git fetch <dir>/in-<repo>.bundle '+refs/heads/*:refs/remotes/origin/*'", t[n], n)
         self.assertNotIn("clone config changed", t["rules"] + t["tick"])
 
+    def test_skills_never_pick_the_branch(self):
+        t = _texts()
+        for n, text in t.items():
+            self.assertNotIn("--branch", text, n)
+            self.assertIsNone(re.search(r"--field\s+branch=", text), n)
+            self.assertIsNone(re.search(r"git (checkout|switch) -[bc]", text), n)
+        self.assertIn("The ticket branch is `sf`'s", t["rules"])
+
     def test_rules_lists_core_deal_breakers(self):
         t = _texts()["rules"].lower().replace('"', "")
         for d in DEAL_BREAKERS:

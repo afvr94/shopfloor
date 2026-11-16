@@ -196,11 +196,15 @@ class SfTest(SfCase):
                          [{"repo": "app", "number": 7, "url": "https://github.com/o/app/pull/7"}])
 
     def test_ticket_set_parses_json_fields(self):
-        code, _, _ = self.sf("ticket", "set", "ENG-1", "--stage", "building", "--field", "branch=b",
-                             "--field", 'prs=[{"repo":"app"}]')
+        code, _, _ = self.sf("ticket", "set", "ENG-1", "--stage", "building", "--field", 'prs=[{"repo":"app"}]')
         t = state.load_ticket("demo", "ENG-1")
-        self.assertEqual((code, t["stage"], t["branch"], t["prs"]), (0, "building", "b", [{"repo": "app"}]))
+        self.assertEqual((code, t["stage"], t["prs"]), (0, "building", [{"repo": "app"}]))
         self.assertEqual(self.sf("ticket", "set", "ENG-1", "--field", "bogus=1")[0], 1)
+
+    def test_ticket_set_never_takes_the_branch(self):
+        code, _, err = self.sf("ticket", "set", "ENG-1", "--field", "branch=shopfloor/xyz-9-victim")
+        self.assertEqual((code, state.load_ticket("demo", "ENG-1")["branch"]), (1, ""))
+        self.assertIn("sf picks the ticket branch", err)
 
     def test_ticket_show_includes_absolute_dir(self):
         code, out, _ = self.sf("ticket", "show", "ENG-1")
@@ -453,7 +457,12 @@ class SfGitTest(unittest.TestCase):
         p = paths.crew_config_path("demo")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(cfg))
-        self.wt = Path(SfCase.sf(self, "worktree", "prepare", "ENG-1", "app", "--branch", "shopfloor/eng-1-x")[1].strip())
+        state.save_ticket("demo", "ENG-1", title="x")
+        code, out, err = SfCase.sf(self, "worktree", "prepare", "ENG-1", "app")
+        # a failed prepare prints nothing, and Path("") would aim the git calls below at the cwd
+        self.assertEqual(code, 0, err)
+        self.wt = Path(out.strip())
+        self.assertTrue(self.wt.is_absolute() and str(self.wt).startswith(str(root)), self.wt)
 
     sf = SfCase.sf
 

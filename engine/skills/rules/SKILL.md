@@ -37,6 +37,7 @@ Never put ticket text beyond the title, secrets, tokens or personal data into ch
 - Tracker changes, PRs and merges happen only through `sf tracker`, `sf ship` and `sf merge`.
 - Everything that talks to GitHub goes through `sf`: `sf pr view`, `sf pr log` and `sf pr reply` for pull requests and CI, `sf push` and `sf sync` for pushing and fetching. You never run `gh`, `git push`, `git pull` or a `git fetch` from a remote; the sandbox has no credentials for them and the guard blocks them.
 - `sf` never runs git in your clone. Code moves as bundle files in the ticket folder: `sf sync` writes `<dir>/in-<repo>.bundle` for you to `git fetch`, and `sf push` and `sf ship` push your branch from the `<dir>/out-<repo>.bundle` you made with `git bundle create`. A broken clone is yours to fix: rename its folder and run `sf worktree prepare` again.
+- The ticket branch is `sf`'s: it names it at the first `sf worktree prepare` and `sf ticket show` reports it as `branch`. Never pick, rename or set a branch name yourself; `sf push` and `sf ship` push only that branch.
 - Chat goes through `sf chat post` and `sf chat ask`.
 - Run state changes only through `sf ticket set`, `sf commands ack`, `sf lessons`, `sf runs log`, `sf pause` and `sf resume`.
 - Never write `state.json`, `briefing.json`, `commands.jsonl`, `lessons.json` or `runs.jsonl` yourself, nor a `CLAUDE.md` or `AGENTS.md` in the worktrees folder or a ticket's folder inside it.

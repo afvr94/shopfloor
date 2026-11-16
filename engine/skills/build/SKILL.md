@@ -8,8 +8,8 @@ description: Builds one Shopfloor ticket from its plan or spec in its own clone 
 Load `/shopfloor:rules` first. Input is a ticket key. Work only in the ticket's worktree: a full clone of the repo that `sf worktree prepare` makes for this ticket under the crew's worktrees folder.
 
 ## 1. Prepare
-1. `sf ticket show <KEY>` for the stage, repo, any existing branch and `dir`, the absolute ticket folder. Build every ticket-file path below from `dir`. Read `<dir>/plan.md` or `<dir>/spec.md`, then `<dir>/answers.md` if it exists: the owner's answers there win over the plan or spec (a rebuild after a question builds with the answer).
-2. `sf worktree prepare <KEY> <repo>` prints the worktree path: a clone of `origin` on your ticket branch. Its `origin` points nowhere, so you never reach the network from it; code comes and goes as bundle files in `<dir>`. A rebuild reuses leftover work: check `git status` and the existing commits first, and finish what is there. If the clone is broken, rename its folder (`mv <path> <path>-broken`) and run `sf worktree prepare` again.
+1. `sf ticket show <KEY>` for the stage, repo, the ticket branch (`branch`, empty until the first prepare) and `dir`, the absolute ticket folder. Build every ticket-file path below from `dir`. Read `<dir>/plan.md` or `<dir>/spec.md`, then `<dir>/answers.md` if it exists: the owner's answers there win over the plan or spec (a rebuild after a question builds with the answer).
+2. `sf worktree prepare <KEY> <repo>` prints the worktree path: a clone of `origin` on your ticket branch. `sf` picks that branch; read its name from `sf ticket show` and never create or switch to another one for the ticket. Its `origin` points nowhere, so you never reach the network from it; code comes and goes as bundle files in `<dir>`. A rebuild reuses leftover work: check `git status` and the existing commits first, and finish what is there. If the clone is broken, rename its folder (`mv <path> <path>-broken`) and run `sf worktree prepare` again.
 3. `sf ticket set <KEY> --stage building`, on every attempt including a rebuild; the tick counts these history entries.
 
 ## 2. Implement
