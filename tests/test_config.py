@@ -155,7 +155,7 @@ class ConfigTest(Base):
 
     def test_validate_repos_and_limits(self):
         def m(c):
-            c["repos"]["app"]["github"] = "o/app\nmore"
+            c["repos"]["app"]["github"] = "o/app\n"
             c["limits"]["maxParallel"] = 0
         out = self.errors(m)
         self.assertIn("repos.app.github", out)

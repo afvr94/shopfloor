@@ -203,20 +203,21 @@ CODE_LONG = {"--config", "--config-file", "--rootdir", "--root", "--dir", "--set
              "--resolve-plugins-relative-to", "--plugin", "--require", "--import", "--loader",
              "--experimental-loader", "--preload", "--testrunner", "--resolver", "--transform", "--preset",
              "--confcutdir", "--testenvironment", "--environment", "--snapshotresolver", "--watchplugins",
-             "--reporter", "--reporters", "--import-map", "--env-file"}
+             "--reporter", "--reporters", "--import-map", "--env-file", "--working-dir", "--roots"}
 CODE_SHORT = {"jest": "c", "vitest": "cr", "eslint": "c", "tsc": "p", "pytest": "c", "node": "r", "nodejs": "r",
-              "bun": "r", "ruby": "rIC", "php": "fcd"}
+              "bun": "r", "ruby": "rIC", "php": "fcd", "composer": "d"}
 # short letters that take program text from argv; python is parsed exactly in python_args
 INLINE_SHORT = {"node": "ep", "nodejs": "ep", "ruby": "e", "php": "rRBEF", "bun": "ep", "deno": ""}
 INLINE_LONG = {"--eval", "--eval-file", "--print"}
 PY_VALUE = set("WX")
 # pure-output options: their value may also point into a temp dir; every other toolchain path stays in the worktree
-OUTPUT_OPTS = {"--junitxml", "--junit-xml", "--cov-report", "--basetemp", "-o", "--output", "--out-dir", "--outdir"}
+OUTPUT_OPTS = {"--junitxml", "--junit-xml", "--cov-report", "--basetemp", "--output", "--out-dir", "--outdir"}
+O_IS_OUTPUT = {"go", "rustc", "swift", "ruff"}  # elsewhere -o means offline (mvn), optimize (composer) or ini (pytest)
 SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:(?!:)")  # data:, file:, https:, git+ssh: ... (not pytest's a.py::t)
 SCHEME_OK = {("pytest", "-p")}  # -p no:cacheprovider names a plugin
 # options that run a program or inline code: go -exec/-toolexec/-overlay, rake -e/-p/-E
 EXEC_SHORT = {"rake": "epE"}
-EXEC_LONG = {"go": {"-exec", "-toolexec", "-overlay"},
+EXEC_LONG = {"go": {"-exec", "-toolexec", "-overlay", "--exec", "--toolexec", "--overlay"},
              "rake": {"--eval", "--execute", "--execute-print", "--execute-continue"}}
 CURL_OUT = {"-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar", "--trace", "--trace-ascii", "--stderr",
             "--output-dir"}
@@ -332,14 +333,16 @@ def toolchain_paths(exe: str, args: list, write, code) -> None:
         a, prev = args[k], args[k - 1] if k else ""
         k += 1
         name, eq, val = a.partition("=")
-        if a.startswith("-") and name.lower() in OUTPUT_OPTS:
+        if a.startswith("-") and (name.lower() in OUTPUT_OPTS or name == "-o" and exe in O_IS_OUTPUT):
             if not eq:
-                val, k = (args[k] if k < len(args) else ""), k + 1
+                if k >= len(args) or args[k].startswith("-"):
+                    continue  # never take the next option as this one's value
+                val, k = args[k], k + 1
             out = val.partition(":")[2] if name.lower() == "--cov-report" else val
             for v in (out, out.partition("=")[2]):
                 write(v)
             continue
-        if a.startswith("-o") and not a.startswith("--") and len(a) > 2:
+        if a.startswith("-o") and not a.startswith("--") and len(a) > 2 and exe in O_IS_OUTPUT:
             write(a[2:])
             continue
         vals = [val] if a.startswith("-") and eq else [] if a.startswith("-") else [a]
