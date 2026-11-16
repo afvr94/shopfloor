@@ -6,7 +6,6 @@ import fnmatch
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -22,7 +21,7 @@ try:
         SED_FLAG, SYSTEM_BIN, TAG_LIST_FLAGS, TOOLCHAIN, WGET_OUT, WRAP_VALUES, WRAPPERS, WRITER_VALUES, Blocked,
         abbreviates, block, expand_long, interpreter, positionals, short_chars, short_value, toolchain)
     from engine.hooks.shell import SUB, Unparseable, lex, literal, structure
-    from engine.lib import config, gitsafe, paths
+    from engine.lib import config, paths
     _IMPORT_ERROR = None
 except Exception as e:  # reported by main(), which then blocks
     _IMPORT_ERROR = e
@@ -414,19 +413,27 @@ class Guard:
 
     # -- git, gh, sf --
 
-    def branch(self, cwd: str | None, loc: list, ref: str = "HEAD") -> str | None:
-        if cwd is None or self.branch_unknown:
-            return None
-        try:
-            out = subprocess.run(["git", *gitsafe.flags(), *loc, "rev-parse", "--abbrev-ref", ref], cwd=cwd,
-                                 capture_output=True, text=True, timeout=10)
-        except (OSError, subprocess.SubprocessError):
-            return None
-        b = out.stdout.strip()
-        return b if out.returncode == 0 and b and b != "HEAD" else None
+    def branch(self, cwd: str | None) -> str | None:
+        """The branch checked out in the crew clone holding cwd, read from .git/HEAD as text: the hook runs
+        outside the sandbox, so it never runs git where a crew can write."""
+        d = cwd
+        while d and not self.branch_unknown and _under(d, self.crew_dirs[:1]):
+            g = os.path.join(d, ".git")
+            if os.path.lexists(g):
+                if os.path.islink(g) or not os.path.isdir(g):
+                    return None
+                try:
+                    with open(os.path.join(g, "HEAD")) as f:
+                        head = f.read(512).strip()
+                except OSError:
+                    return None
+                b = head[len("ref: refs/heads/"):] if head.startswith("ref: refs/heads/") else ""
+                return b or None
+            d = os.path.dirname(d)
+        return None
 
-    def current(self, cwd: str | None, loc: list, what: str) -> str:
-        return self.branch(cwd, loc) or block(f"can't tell the current branch for this {what}")
+    def current(self, cwd: str | None, what: str) -> str:
+        return self.branch(cwd) or block(f"can't tell the current branch for this {what}")
 
     def git(self, words: list, cwd: str | None):
         i = 1
@@ -445,8 +452,9 @@ class Guard:
             if cwd is None or not _under(cwd, self.roots) or _under(cwd, self.repos, fold=True):
                 block("git -C may only point into the crew's worktrees")
         sub, rest = (words[i], words[i + 1:]) if i < len(words) else ("", [])
-        if sub in ("push", "fetch", "pull"):
-            block(f"crews don't run git {sub}; sf push and sf sync do it outside the sandbox")
+        if sub in ("push", "pull") or sub == "fetch" and not (rest and self.ticket_bundle(rest[0], cwd)):
+            block(f"crews don't run git {sub}; sf push and sf sync do it outside the sandbox, through bundles in "
+                  f"the ticket folder")
         if sub not in GIT_READ | GIT_LOCAL:
             block(f"git {literal(sub).replace(SUB, '$(...)')} is not on the guard's list of git commands")
         if sub not in GIT_READ and (cwd is None or _under(cwd, self.repos)):
@@ -463,6 +471,22 @@ class Guard:
             if short_chars(a) & GIT_SHORT_DENY.get(sub, set()) and not a.startswith(("-m", "-F")):
                 block(f"git {sub} {a} opens an editor or prompt the guard can't check")
         getattr(self, "git_" + sub.replace("-", "_"), lambda rest, cwd: None)(rest, cwd)
+
+    def ticket_bundle(self, word: str, cwd: str | None) -> bool:
+        p = resolve(word, cwd)
+        return p is not None and p.casefold().endswith(".bundle") and _under(p, [self.tickets]) and p != self.tickets
+
+    def git_fetch(self, rest, cwd):
+        """Only from a bundle file in the ticket folder: sf sync writes one; the network stays out of reach."""
+        if any(a.startswith("-") for a in rest):
+            block("git fetch from a bundle takes no options")
+
+    def git_bundle(self, rest, cwd):
+        """Only git bundle create <ticket folder>/<name>.bundle <branch>: how a crew hands its branch to sf push."""
+        if rest[:1] != ["create"] or len(rest) < 3 or not self.ticket_bundle(rest[1], cwd) or \
+                any(a.startswith("-") for a in rest[1:]):
+            block("git bundle may only create a .bundle file in the ticket folder from named branches")
+        self.write(rest[1], cwd)
 
     def git_options(self, sub: str, rest: list, short: set, long: set):
         """Only the listed options: anything else could open an editor or a prompt."""
@@ -490,18 +514,18 @@ class Guard:
 
     def git_merge(self, rest, cwd):
         if not any(a in ("--abort", "--quit", "--continue") for a in rest):
-            b = self.current(cwd, [], "merge")
+            b = self.current(cwd, "merge")
             if b in self.protected:
                 block(f"merging into {b} is not allowed; sf merge does that when the flow allows it")
 
     def git_rebase(self, rest, cwd):
         if any(a.startswith(("--exec", "--interactive")) or short_chars(a) & {"x", "i"} for a in rest):
             block("git rebase -i/--exec runs an editor or commands the guard can't check")
-        if self.current(cwd, [], "rebase") in self.protected:
+        if self.current(cwd, "rebase") in self.protected:
             block("rebasing a protected branch is not allowed")
 
     def git_reset(self, rest, cwd):
-        if "--hard" in rest and self.current(cwd, [], "reset") in self.protected:
+        if "--hard" in rest and self.current(cwd, "reset") in self.protected:
             block("git reset --hard on a protected branch is not allowed")
         if any(a.startswith("--patch") or "p" in short_chars(a) for a in rest):
             block("git reset -p is interactive")

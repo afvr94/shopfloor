@@ -47,7 +47,7 @@ SED_FLAG = re.compile(r"s(.)(?:\\.|(?!\1).)*\1(?:\\.|(?!\1).)*\1[gpIiMm0-9]*[we]
 GIT_READ = {"", "status", "diff", "log", "show", "rev-parse", "ls-files", "grep", "blame", "merge-base", "describe",
             "shortlog", "show-ref", "rev-list", "branch", "tag", "remote", "config", "worktree"}
 GIT_LOCAL = {"add", "commit", "checkout", "switch", "restore", "reset", "stash", "rebase", "merge",
-             "cherry-pick", "mv", "rm"}
+             "cherry-pick", "mv", "rm", "fetch", "bundle"}
 _DIFF = {"--stat", "--numstat", "--shortstat", "--name-only", "--name-status", "--cached", "--staged", "--no-index",
          "--color", "--no-color", "--word-diff", "--unified", "--patch", "--no-patch", "--exit-code", "--quiet",
          "--summary", "--dirstat", "--check", "--ignore-all-space", "--ignore-space-change", "--diff-filter",

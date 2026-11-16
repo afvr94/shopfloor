@@ -377,10 +377,33 @@ ROWS = [
     ("sf pr log", BASH, "sf pr log ENG-1 12345", {}, "wt", False),
     ("sf pr reply", BASH, "sf pr reply ENG-1 app 7 --body-file %STATE%/tickets/ENG-1/reply.md", {}, "wt", False),
     ("sf pr reply with a secret file", BASH, "sf pr reply ENG-1 app 7 --body-file ~/.ssh/id_rsa", {}, "wt", True),
-    ("Write clone pin", WRITE, {"file_path": "%STATE%/clones/ENG-1/app.sha256", "content": "x"}, {}, "wt", True),
-    ("Write clone pin casefolded", WRITE, {"file_path": "%STATE%/CLONES/ENG-1/APP.SHA256", "content": "x"},
+    ("Write transport config", WRITE, {"file_path": "%STATE%/transport/app.git/config", "content": "x"}, {}, "wt", True),
+    ("Write transport casefolded", WRITE, {"file_path": "%STATE%/TRANSPORT/APP.GIT/hooks/x", "content": "x"},
      {}, "wt", True),
-    ("redirect into clone pin", BASH, "echo x > %STATE%/clones/ENG-1/app.sha256", {}, "wt", True),
+    ("redirect into transport", BASH, "echo x > %STATE%/transport/app.git/HEAD", {}, "wt", True),
+    ("Write merge copy", WRITE, {"file_path": "%STATE%/merge/app/x.py", "content": "x"}, {}, "wt", True),
+    # handing code over to sf push and taking origin from sf sync, as bundle files in the ticket folder
+    ("git bundle create to the ticket folder", BASH,
+     "git bundle create %STATE%/tickets/ENG-1/out-app.bundle shopfloor/eng-1-x", {}, "wt", False),
+    ("git bundle create elsewhere", BASH, "git bundle create /tmp/out.bundle shopfloor/eng-1-x", {}, "wt", True),
+    ("git bundle create into the worktree", BASH, "git bundle create out.bundle HEAD", {}, "wt", True),
+    ("git bundle create not a .bundle", BASH,
+     "git bundle create %STATE%/tickets/ENG-1/state.json HEAD", {}, "wt", True),
+    ("git bundle create with an option", BASH,
+     "git bundle create %STATE%/tickets/ENG-1/out-app.bundle --all", {}, "wt", True),
+    ("git bundle create into transport", BASH,
+     "git bundle create %STATE%/transport/x.bundle HEAD", {}, "wt", True),
+    ("git bundle unbundle", BASH, "git bundle unbundle %STATE%/tickets/ENG-1/in-app.bundle", {}, "wt", True),
+    ("git fetch the in-bundle", BASH,
+     "git fetch %STATE%/tickets/ENG-1/in-app.bundle '+refs/heads/*:refs/remotes/origin/*' && git rebase origin/main",
+     {}, "wt", False),
+    ("git fetch a bundle outside the ticket folder", BASH, "git fetch /tmp/x.bundle", {}, "wt", True),
+    ("git fetch a ticket folder file that is no bundle", BASH, "git fetch %STATE%/tickets/ENG-1", {}, "wt", True),
+    ("git fetch bundle with --upload-pack", BASH,
+     "git fetch --upload-pack=x %STATE%/tickets/ENG-1/in-app.bundle", {}, "wt", True),
+    ("git fetch bundle then an option", BASH, "git fetch %STATE%/tickets/ENG-1/in-app.bundle --all", {}, "wt", True),
+    ("git fetch a dynamic bundle", BASH, "git fetch $B", {}, "wt", True),
+    ("git fetch with no source", BASH, "git fetch", {}, "wt", True),
     ("gh pr view checks comment", BASH, "gh pr view 7 && gh pr checks 7 && gh pr comment 7 -b ok", {}, "wt", True),
     ("Write worktree file", WRITE, {"file_path": "%STATE%/worktrees/eng-1/new.py", "content": "x"}, {}, "wt", False),
     ("MultiEdit worktree", "MultiEdit", {"file_path": "%WT%/app.py", "edits": []}, {}, "wt", False),
@@ -772,8 +795,10 @@ class GuardTest(unittest.TestCase):
         _git(main, "commit", "-q", "-m", "init")
         wts = paths.worktrees_dir("demo")
         cls.wt, cls.test_wt = wts / "eng-1", wts / "staging"
-        _git(main, "worktree", "add", "-q", "-b", "shopfloor/eng-1-x", str(cls.wt))
-        _git(main, "worktree", "add", "-q", "-b", "staging", str(cls.test_wt))
+        wts.mkdir(parents=True, exist_ok=True)
+        for d, b in ((cls.wt, "shopfloor/eng-1-x"), (cls.test_wt, "staging")):
+            _git(wts, "clone", "-q", str(main), str(d))
+            _git(d, "checkout", "-q", "-b", b)
         (cls.wt / "tok-link").symlink_to(h / "secrets" / "linear")
         (cls.wt / "out-link").symlink_to(paths.REPO_ROOT)
         cls.cwds = {"wt": str(cls.wt), "main": str(main), "test": str(cls.test_wt)}
