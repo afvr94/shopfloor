@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.server
 import json
 import os
 import re
@@ -8,13 +9,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import urllib.request
 from urllib.parse import quote
 
 from engine.adapters.chat import make_chat
 from engine.adapters.tracker import make_tracker
 from engine.hooks.guard import decide
-from engine.lib import config, gitsafe, paths, proc, runner, state, transport
+from engine.lib import config, gitsafe, paths, proc, runner, signing, state, transport
 from engine.lib.redact import redact
 
 Row = tuple[bool, str, str]
@@ -103,6 +105,50 @@ def live_smoke(cid: str) -> str | None:
     return None
 
 
+def board_reach(cid: str) -> str | None:
+    """A real sandboxed crew session tries to reach a stand-in for the board on 127.0.0.1, directly and through
+    the sandbox proxy. It passes only if the session ran the probe and nothing reached the stand-in."""
+    hits = []
+
+    class Probe(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            hits.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Probe)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    urls = [f"http://127.0.0.1:{port}/healthz", f"http://localhost:{port}/healthz"]
+    probe = "; ".join([f"curl -s -m 5 -o /dev/null {u}; echo rc=$? >> reach.txt" for u in urls] +
+                      [f'curl -s -m 5 -o /dev/null -x "$HTTP_PROXY" {urls[0]}; echo rc=$? >> reach.txt'])
+    argv, env = runner.claude_invocation(cid, (
+        "This is a Shopfloor doctor check of the sandbox's network rules. Use the Bash tool once to run this "
+        f"exactly as written, then reply DONE: `{probe}`"))
+    try:
+        with tempfile.TemporaryDirectory(prefix="shopfloor-reach-") as d:
+            try:
+                r = subprocess.run(argv, env=env, cwd=d, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                   timeout=SMOKE_SECS)
+            except subprocess.TimeoutExpired:
+                return f"claude did not finish within {SMOKE_SECS}s"
+            try:
+                ran = open(os.path.join(d, "reach.txt")).read().split()
+            except OSError:
+                ran = []
+    finally:
+        server.shutdown()
+        server.server_close()
+    if hits:
+        return f"a sandboxed command reached 127.0.0.1:{port} ({len(hits)} requests): crews could reach the board"
+    if len(ran) != 3:
+        return f"the session did not run the probe (claude exited {r.returncode}); can't tell"
+    return None
+
+
 def ls_remote(cfg: dict, repo: str) -> str | None:
     """Reach origin from the crew's transport repo, the one sf fetches and pushes through."""
     base = cfg["repos"][repo]["base"]
@@ -134,13 +180,14 @@ def _crew_rows(cid: str, deps: dict, live: bool = False) -> list[Row]:
         for name in cfg["repos"]:
             rows.append(_guarded(f"{cid}: git ls-remote {name}", lambda name=name: deps["lsremote"](cfg, name)))
         rows.append(_guarded(f"{cid}: live sandbox session", lambda: deps["smoke"](cid)))
+        rows.append(_guarded(f"{cid}: board unreachable from the sandbox", lambda: deps["reach"](cid)))
     return rows
 
 
 def check_all(crew_id: str | None, deps: dict | None = None, during_init: bool = False,
               live: bool = False) -> list[Row]:
     d = {"which": shutil.which, "run": proc.run, "tracker": make_tracker, "chat": make_chat, "health": _health,
-         "smoke": live_smoke, "lsremote": ls_remote}
+         "smoke": live_smoke, "lsremote": ls_remote, "reach": board_reach}
     d.update(deps or {})
     which = d["which"]
     rows: list[Row] = [
@@ -152,6 +199,7 @@ def check_all(crew_id: str | None, deps: dict | None = None, during_init: bool =
     tools, hint = SANDBOX_HINT.get(sys.platform, ([], ""))
     absent = [t for t in tools if not which(t)]
     rows.append((not absent, "sandbox", f"{', '.join(absent)} missing: {hint}" if absent else ""))
+    rows.append(_guarded("signing key", signing.key_problem))
     try:
         board = config.load_board()
         rows.append((True, "board config", ""))

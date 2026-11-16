@@ -68,7 +68,10 @@ class RunnerTest(unittest.TestCase):
                             "filesystem": {"allowWrite": [str(paths.worktrees_dir("demo")),
                                                           str(paths.crew_state_dir("demo") / "tickets"),
                                                           tempfile.gettempdir()],
-                                           "denyRead": deny}}}
+                                           "denyRead": deny},
+                            "network": {"allowLocalBinding": False,
+                                        "deniedDomains": ["localhost", "*.localhost", "127.0.0.1", "0.0.0.0",
+                                                          "[::1]"]}}}
         self.assertEqual(json.loads(argv[-1]), want)
         self.assertFalse(any(w.startswith(str(paths.ticket_state_root("demo"))) for w in
                              json.loads(argv[-1])["sandbox"]["filesystem"]["allowWrite"]))

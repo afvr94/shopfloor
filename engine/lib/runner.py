@@ -21,6 +21,10 @@ _NO_PROMPT_ENV = {"GIT_EDITOR": "true", "EDITOR": "true", "VISUAL": "true", "GIT
 
 
 SF_EXCLUDED = ["sf *"]  # Bash rule syntax: sf with or without arguments
+# The board listens on loopback and queues signed owner commands. In bypassPermissions mode the sandbox proxy lets
+# a crew reach any host it hasn't been told to refuse, so loopback is refused by name; deniedDomains holds in every
+# permission mode. allowLocalBinding stays off so a direct connection to localhost is blocked too (macOS).
+LOOPBACK_DENIED = ["localhost", "*.localhost", "127.0.0.1", "0.0.0.0", "[::1]"]
 
 
 class RunnerBusy(Exception):
@@ -38,6 +42,7 @@ def claude_invocation(crew_id: str, prompt: str) -> tuple[list[str], dict]:
                                       str(paths.tickets_dir(crew_id)),
                                       tempfile.gettempdir()],
                        "denyRead": config.secret_paths(config.load_crew(crew_id))},
+        "network": {"allowLocalBinding": False, "deniedDomains": LOOPBACK_DENIED},
     }}
     # --setting-sources "" loads none of the user's or a repo's settings, hooks or plugins; --settings still applies
     argv = ["claude", "-p", prompt, "--plugin-dir", str(paths.ENGINE_DIR), "--permission-mode",

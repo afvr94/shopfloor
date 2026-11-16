@@ -9,13 +9,14 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import urllib.request
 from pathlib import Path
 from unittest import mock
 
 from cli import doctor
 from engine.adapters.chat import make_chat
 from engine.adapters.tracker import make_tracker
-from engine.lib import config, paths, state
+from engine.lib import config, paths, signing, state
 from engine.lib.proc import ProcError
 from engine.lib.proc import run as real_run
 from tests.fakes import FakeLinear, FakeSlack
@@ -105,6 +106,7 @@ class Doctor(unittest.TestCase):
             "chat": lambda c: make_chat(c, call=FakeSlack(slack_answer)),
             "health": lambda url: True,
             "lsremote": lambda cfg, name: None,
+            "reach": lambda cid: None,
         }
 
     def rows(self, **kw):
@@ -154,6 +156,29 @@ class Doctor(unittest.TestCase):
         with mock.patch.object(doctor.subprocess, "run",
                                lambda argv, cwd, **kw: subprocess.CompletedProcess(argv, 0, "DONE", "")):
             self.assertIn("sandboxed write", doctor.live_smoke("demo"))
+
+    def test_board_reach_passes_only_when_the_probe_ran_and_nothing_arrived(self):
+        def blocked(argv, cwd, **kw):
+            self.assertEqual(json.loads(argv[-1])["sandbox"]["network"]["deniedDomains"][2], "127.0.0.1")
+            Path(cwd, "reach.txt").write_text("rc=7\nrc=7\nrc=56\n")
+            return subprocess.CompletedProcess(argv, 0, "DONE", "")
+
+        def leaky(argv, cwd, **kw):
+            url = re.search(r"http://127\.0\.0\.1:\d+/healthz", argv[2]).group(0)
+            urllib.request.urlopen(url, timeout=5).close()
+            Path(cwd, "reach.txt").write_text("rc=0\nrc=0\nrc=0\n")
+            return subprocess.CompletedProcess(argv, 0, "DONE", "")
+
+        for run, want in ((blocked, None), (leaky, "crews could reach the board"),
+                          (lambda argv, cwd, **kw: subprocess.CompletedProcess(argv, 1, "", ""), "did not run")):
+            with self.subTest(want=want), mock.patch.object(doctor.subprocess, "run", run):
+                got = doctor.board_reach("demo")
+                self.assertIsNone(got) if want is None else self.assertIn(want, got)
+
+    def test_a_damaged_signing_key_fails_its_row(self):
+        signing.mac("s", {})
+        os.chmod(signing.key_path().parent, 0o700)
+        self.assertEqual([n for n in self.failing(self.rows()) if n == "signing key"], ["signing key"])
 
     def test_guard_self_test_checks_protected_branch_even_in_dry_run(self):
         seen = []
