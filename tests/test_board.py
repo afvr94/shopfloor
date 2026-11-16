@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import re
 import tempfile
 import threading
 import unittest
@@ -97,16 +98,17 @@ class ServerTest(BoardCase):
 
     def test_static_whitelist(self):
         with tempfile.TemporaryDirectory() as t:
-            (Path(t) / "a.js").write_text("1")
-            (Path(t) / "index.html").write_text("<p>hi</p>")
-            (Path(t).parent / "secret.txt").write_text("x")
-            with mock.patch.object(server, "STATIC_DIR", Path(t)):
+            static = Path(t) / "static"
+            static.mkdir()
+            (static / "a.js").write_text("1")
+            (static / "index.html").write_text("<p>hi</p>")
+            (Path(t) / "secret.txt").write_text("x")
+            with mock.patch.object(server, "STATIC_DIR", static):
                 self.start({"host": "127.0.0.1", "port": 0, "pollSeconds": 60})
             self.assertEqual(self.req("GET", "/static/a.js")[0], 200)
             self.assertEqual(self.req("GET", "/")[1], "<p>hi</p>")
             for p in ("/static/b.js", "/static/../secret.txt", "/static/%2e%2e/secret.txt"):
                 self.assertEqual(self.req("GET", p)[0], 404, p)
-        self.assertEqual(self.req("GET", "/static/x")[0], 404)
 
     def test_missing_static_dir_is_fine(self):
         with mock.patch.object(server, "STATIC_DIR", self.home / "nope"):
@@ -137,9 +139,11 @@ class ServerTest(BoardCase):
 
     def test_run_spawns_and_is_refused_while_locked(self):
         with mock.patch.object(server, "SPAWN") as spawn:
+            self.assertEqual(self.req("POST", "/api/run", {"crew": "demo"})[0], 403)
+            spawn.assert_not_called()
             self.assertEqual(self.post("/api/run", {"crew": "demo"})[0], 202)
             self.assertEqual(spawn.call_args[0][0][1:], [str(paths.REPO_ROOT / "bin" / "shopfloor"), "run", "demo"])
-            self.assertTrue(state.acquire_lock(paths.crew_state_dir("demo") / "tick.lock"))
+            self.assertTrue(state.acquire_lock(paths.tick_lock("demo")))
             self.assertEqual(self.post("/api/run", {"crew": "demo"})[0], 409)
             self.assertEqual(spawn.call_count, 1)
 
@@ -147,12 +151,12 @@ class ServerTest(BoardCase):
 class SessionsTest(unittest.TestCase):
     def test_sessions_only_crew_dirs(self):
         with tempfile.TemporaryDirectory() as t:
-            home, projects = Path(t) / ".sf", Path(t) / "projects"
+            home, projects = Path(t) / "my_home dir" / ".sf", Path(t) / "projects"
             (home / "state" / "demo").mkdir(parents=True)
             line = json.dumps({"type": "user", "timestamp": "2026-11-14T10:00:00Z",
                                "message": {"content": "/shopfloor:build ENG-1"}}) + "\n"
             for name in (str(home / "state" / "demo" / "worktrees"), str(Path(t) / "elsewhere")):
-                d = projects / name.replace("/", "-").replace(".", "-")
+                d = projects / re.sub(r"[^A-Za-z0-9]", "-", name)
                 d.mkdir(parents=True)
                 (d / "s1.jsonl").write_text(line)
             found = sessions.crew_sessions(projects, home)

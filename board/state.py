@@ -9,17 +9,11 @@ from cli.schedule import run_times
 from engine.lib import config, lessons, paths, runner, state
 from engine.lib.redact import redact
 
-TICK_LOCK = "tick.lock"
 _TICKET_FIELDS = ("key", "title", "url", "stage", "prs", "branch", "fixRounds", "updatedAt")
 
 
-def crew_dir(crew_id: str) -> Path:
-    """A crew's state dir without creating it, so polling an idle crew writes nothing."""
-    return paths.shopfloor_home() / "state" / paths._check(paths.CREW_ID_RE, crew_id, "crew id")
-
-
 def tick_running(crew_id: str) -> bool:
-    return state.read_lock(crew_dir(crew_id) / TICK_LOCK) is not None
+    return state.read_lock(paths.tick_lock(crew_id)) is not None
 
 
 def next_run(schedule: dict | None, now: datetime | None = None) -> str | None:
@@ -56,13 +50,14 @@ def crew_state(crew_id: str) -> dict:
         "running": False, "building": None, "nextRun": next_run(cfg.get("schedule")),
         "tickets": [], "questions": [], "runs": [], "lessons": [], "error": None,
     }
-    if not crew_dir(crew_id).is_dir():
+    if not paths.crew_dir(crew_id).is_dir():
         return out
     out["running"] = tick_running(crew_id)
     out["building"] = runner.status(crew_id)
-    out["tickets"] = [{k: t[k] for k in _TICKET_FIELDS} for t in state.list_tickets(crew_id)]
+    tickets = state.list_tickets(crew_id)
+    out["tickets"] = [{k: t[k] for k in _TICKET_FIELDS} for t in tickets]
     out["questions"] = [{"key": t["key"], "title": t["title"], "question": t["question"]}
-                        for t in state.list_tickets(crew_id) if t["stage"] == "needs_you"]
+                        for t in tickets if t["stage"] == "needs_you"]
     out["runs"] = state.recent_runs(crew_id, 60)
     try:
         out["lessons"] = lessons.show(crew_id)
@@ -85,7 +80,7 @@ def board_state() -> dict:
 
 def briefing_data(crew_id: str, key: str) -> dict | None:
     try:
-        d = json.loads((crew_dir(crew_id) / "tickets" / paths._check(paths.TICKET_KEY_RE, key, "ticket key")
+        d = json.loads((paths.crew_dir(crew_id) / "tickets" / paths.check(paths.TICKET_KEY_RE, key, "ticket key")
                         / "briefing.json").read_text())
     except (OSError, ValueError):
         return None

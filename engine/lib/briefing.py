@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from . import config, paths, redact
-from .state import _atomic_write
+from .state import atomic_write
 
 MAX_BYTES = 200_000
 PR_URL = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")  # apply with .fullmatch
@@ -79,7 +79,7 @@ def write_briefing(crew_id: str, key: str, data: dict) -> Path:
     path = paths.ticket_dir(crew_id, key) / "briefing.json"
     if errs := validate_briefing(data):
         raise BriefingError("; ".join(errs))
-    _atomic_write(path, json.dumps(data, indent=2) + "\n")
+    atomic_write(path, json.dumps(data, indent=2) + "\n")
     return path
 
 

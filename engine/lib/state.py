@@ -24,7 +24,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime(_TS_FORMAT)
 
 
-def _atomic_write(path: Path, data: str) -> None:
+def atomic_write(path: Path, data: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".")
     try:
@@ -87,7 +87,7 @@ def acquire_lock(path: Path, stale_minutes: int = 45) -> bool:
         except FileExistsError:
             if _fresh(_read_json(path), stale_minutes):
                 return False
-            _atomic_write(path, body)
+            atomic_write(path, body)
             return True
         with os.fdopen(fd, "w") as f:
             f.write(body)
@@ -99,7 +99,7 @@ def beat(path: Path) -> None:
     lock = _read_json(path)
     if lock and lock.get("pid") == os.getpid():
         lock["heartbeat"] = _now()
-        _atomic_write(path, json.dumps(lock))
+        atomic_write(path, json.dumps(lock))
 
 
 def release(path: Path) -> None:
@@ -161,7 +161,7 @@ def save_ticket(crew_id: str, key: str, **changes) -> dict:
             t["history"].append({"ts": now, "stage": stage})
         t.update(changes)
         t["updatedAt"] = now
-        _atomic_write(path, json.dumps(t, indent=2))
+        atomic_write(path, json.dumps(t, indent=2))
     return t
 
 

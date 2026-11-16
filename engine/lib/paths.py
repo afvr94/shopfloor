@@ -12,7 +12,7 @@ CREW_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,30}")
 TICKET_KEY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,19}")
 
 
-def _check(pattern: re.Pattern, value: object, what: str) -> str:
+def check(pattern: re.Pattern, value: object, what: str) -> str:
     if not (isinstance(value, str) and pattern.fullmatch(value)):
         raise ValueError(f"invalid {what}: {value!r}")
     return value
@@ -23,17 +23,30 @@ def shopfloor_home() -> Path:
 
 
 def crew_config_path(crew_id: str) -> Path:
-    return shopfloor_home() / "crews" / f"{_check(CREW_ID_RE, crew_id, 'crew id')}.json"
+    return shopfloor_home() / "crews" / f"{check(CREW_ID_RE, crew_id, 'crew id')}.json"
+
+
+def crew_dir(crew_id: str) -> Path:
+    """A crew's state dir path; unlike crew_state_dir it never creates it."""
+    return shopfloor_home() / "state" / check(CREW_ID_RE, crew_id, "crew id")
 
 
 def crew_state_dir(crew_id: str) -> Path:
-    d = shopfloor_home() / "state" / _check(CREW_ID_RE, crew_id, "crew id")
+    d = crew_dir(crew_id)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
+def tick_lock(crew_id: str) -> Path:
+    return crew_dir(crew_id) / "lock"
+
+
+def build_lock(crew_id: str) -> Path:
+    return crew_dir(crew_id) / "build.lock"
+
+
 def ticket_dir(crew_id: str, key: str) -> Path:
-    _check(TICKET_KEY_RE, key, "ticket key")
+    check(TICKET_KEY_RE, key, "ticket key")
     return crew_state_dir(crew_id) / "tickets" / key
 
 

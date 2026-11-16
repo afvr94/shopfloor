@@ -260,7 +260,7 @@ def h_pause(a, cfg):
     p = paths.crew_config_path(cfg["id"])
     raw = json.loads(p.read_text())
     raw["paused"] = a.cmd == "pause"
-    state._atomic_write(p, json.dumps(raw, indent=2) + "\n")
+    state.atomic_write(p, json.dumps(raw, indent=2) + "\n")
     print("paused" if raw["paused"] else "resumed")
 
 

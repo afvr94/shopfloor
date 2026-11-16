@@ -18,7 +18,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 MAX_BODY = 16 * 1024
 MAX_TEXT = 4000
 TYPES = {"html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8", "css": "text/css; charset=utf-8",
-         "woff2": "font/woff2", "svg": "image/svg+xml", "png": "image/png"}
+         "woff2": "font/woff2", "json": "application/json", "ico": "image/x-icon", "svg": "image/svg+xml", "png": "image/png"}
 
 
 def _spawn(argv: list[str]) -> None:

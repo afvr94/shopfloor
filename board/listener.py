@@ -4,10 +4,9 @@ import json
 import sys
 import threading
 
-from board.state import crew_dir
 from engine.adapters.chat import make_chat
 from engine.adapters.chat.base import ThreadRef
-from engine.lib import config, state
+from engine.lib import config, paths, state
 from engine.lib.commands import CommandQueue
 from engine.lib.redact import redact
 
@@ -23,7 +22,7 @@ def _read_cursors(path) -> dict:
 
 
 def _poll_crew(crew_id: str) -> int:
-    sdir = crew_dir(crew_id)
+    sdir = paths.crew_dir(crew_id)
     if not sdir.is_dir():
         return 0
     threads = {t["key"]: ThreadRef.from_dict(t["thread"]) for t in state.list_tickets(crew_id)
@@ -40,7 +39,7 @@ def _poll_crew(crew_id: str) -> int:
             since[r.key] = r.ts
     finally:
         if since != _read_cursors(cursor_path):
-            state._atomic_write(cursor_path, json.dumps(since))
+            state.atomic_write(cursor_path, json.dumps(since))
     return queued
 
 

@@ -24,10 +24,6 @@ class RunnerBusy(Exception):
     pass
 
 
-def _lock_path(crew_id: str):
-    return paths.crew_state_dir(crew_id) / "build.lock"
-
-
 def claude_invocation(crew_id: str, prompt: str) -> tuple[list[str], dict]:
     sandbox = {"sandbox": {
         "enabled": True,
@@ -62,7 +58,7 @@ def _killpg(pid: int, sig: int) -> None:
 
 
 def status(crew_id: str) -> dict | None:
-    return state.read_lock(_lock_path(crew_id))
+    return state.read_lock(paths.build_lock(crew_id))
 
 
 def start(crew_id: str, keys: list[str]) -> int:
@@ -101,7 +97,7 @@ def _build_one(crew_id: str, key: str, max_minutes: float) -> None:
 
 def run_builds(crew_id: str, keys: list[str]) -> None:
     limits = config.load_crew(crew_id)["limits"]
-    lock = _lock_path(crew_id)
+    lock = paths.build_lock(crew_id)
     if not state.acquire_lock(lock):
         raise RunnerBusy(f"a build run is already active for crew '{crew_id}'")
     stop = threading.Event()

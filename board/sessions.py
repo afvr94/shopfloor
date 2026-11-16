@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ LONG_TOOL_SECONDS = 45 * 60
 FEED_LIMIT = 160
 _KIND = re.compile(r"shopfloor:([\w-]+)(?:\s+([A-Za-z0-9][A-Za-z0-9-]{0,19}))?")
 _CACHE: dict[Path, Session] = {}
+_LOCK = threading.Lock()
 
 
 def parse_ts(value: object) -> float | None:
@@ -176,10 +178,15 @@ class Session:
 
 
 def _encode(p: Path) -> str:
-    return str(p).replace("/", "-").replace(".", "-")
+    return re.sub(r"[^A-Za-z0-9]", "-", str(p))
 
 
 def crew_sessions(projects_dir: Path, home: Path) -> list[dict]:
+    with _LOCK:
+        return _crew_sessions(projects_dir, home)
+
+
+def _crew_sessions(projects_dir: Path, home: Path) -> list[dict]:
     """Snapshots of recent transcripts whose cwd lies inside <home>/state/<crew>/."""
     state_root = Path(home) / "state"
     if not Path(projects_dir).is_dir():
@@ -192,7 +199,9 @@ def crew_sessions(projects_dir: Path, home: Path) -> list[dict]:
         rest = next((folder.name[len(x):] for x in prefixes if folder.name.startswith(x)), None)
         if rest is None or not folder.is_dir():
             continue
-        crew = next((c for c in crews if rest == c or rest.startswith(c + "-")), rest)
+        crew = next((c for c in crews if rest == c or rest.startswith(c + "-")), None)
+        if crew is None:
+            continue
         for path in folder.glob("*.jsonl"):
             try:
                 if now - path.stat().st_mtime > WINDOW_HOURS * 3600:
