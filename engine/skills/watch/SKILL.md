@@ -12,14 +12,14 @@ Load `/shopfloor:rules` first. Input is a ticket key in stage `in_review` with a
 
 ## 2. Failing checks
 1. Read the failing check's log with `sf pr log <KEY> <run-id>`, where `<run-id>` is the number after `/actions/runs/` in the check's link.
-2. Fix it in the ticket worktree, run the repo's own checks, commit with a Conventional Commit message scoped to the ticket key, then `sf sync <KEY> <repo>` and `sf push <KEY> <repo>`.
+2. Fix it in the ticket worktree, run the repo's own checks, commit with a Conventional Commit message scoped to the ticket key. Bring in the base: `sf sync <KEY> <repo>`, then `git fetch <dir>/in-<repo>.bundle '+refs/heads/*:refs/remotes/origin/*'` and `git rebase origin/<base>`. Then `git bundle create <dir>/out-<repo>.bundle <branch>` and `sf push <KEY> <repo>`.
 3. Count the round: `sf ticket set <KEY> --field fixRounds=<n>`.
 4. After `limits.maxFixRounds` rounds, stop: `sf chat ask` with what is failing and what you tried, 2 or 3 options and a recommendation. Stage becomes `needs_you`.
 
 A failure that points at CI or deploy config, or at something unrelated to the change, is a deal breaker: ask, do not edit it.
 
 ## 3. Review comments
-For each entry in `newComments`: make the fix, commit and `sf push <KEY> <repo>`, or answer with `sf pr reply <KEY> <repo> <number> --body-file <dir>/<file>`. Reply in the configured voice. A request that would trigger a deal breaker, or that grows the change well past the ticket, gets `sf chat ask`. When every new comment is handled, `sf ticket set <KEY> --field reviewSeen=<latestCommentAt>` with the value `sf pr view` returned, so the next run sees only newer ones.
+For each entry in `newComments`: make the fix, commit, `git bundle create <dir>/out-<repo>.bundle <branch>` and `sf push <KEY> <repo>`, or answer with `sf pr reply <KEY> <repo> <number> --body-file <dir>/<file>`. Reply in the configured voice. A request that would trigger a deal breaker, or that grows the change well past the ticket, gets `sf chat ask`. When every new comment is handled, `sf ticket set <KEY> --field reviewSeen=<latestCommentAt>` with the value `sf pr view` returned, so the next run sees only newer ones.
 
 ## 4. Outcomes
 - Merged: `sf ticket set <KEY> --stage merged`, post a short note in the thread.

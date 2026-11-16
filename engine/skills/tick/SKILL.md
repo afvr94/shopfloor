@@ -62,9 +62,6 @@ A ticket the runner cannot take this tick (runner busy, or over `limits.maxParal
 ## 7. Hand off builds
 If paused, or `sf build status` shows a runner already working, hand off nothing and log each waiting key as `waiting-for-runner`. Otherwise hand the queue over in one call, each key once and only if still at `planning`, swept tickets first, at most `limits.maxParallel` keys: `sf build start <KEY> [<KEY> ...]`. The runner starts one `/shopfloor:build` session per ticket. Keys left out stay at `planning` for the next tick's sweep.
 
-## Refused clones
-Whenever `sf` refuses with `clone config changed` (in this tick or a watch run), that ticket's clone was changed in a way `sf` will not run git in. `sf chat ask <KEY>` with the message, options to inspect and remove the clone or to cancel the ticket, and a recommendation to inspect it; the stage becomes `needs_you`. Then `sf runs log <KEY> stopped` and leave the ticket alone.
-
 ## 8. Close
 `sf runs log <KEY> <result> --note "<short note>"` for each ticket you moved, results like `claimed`, `queued`, `answered`, `backed-off`, `stopped`, `waiting-for-runner`. Nothing happened: end quietly.
 

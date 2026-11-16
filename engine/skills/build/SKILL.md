@@ -9,7 +9,7 @@ Load `/shopfloor:rules` first. Input is a ticket key. Work only in the ticket's 
 
 ## 1. Prepare
 1. `sf ticket show <KEY>` for the stage, repo, any existing branch and `dir`, the absolute ticket folder. Build every ticket-file path below from `dir`. Read `<dir>/plan.md` or `<dir>/spec.md`, then `<dir>/answers.md` if it exists: the owner's answers there win over the plan or spec (a rebuild after a question builds with the answer).
-2. `sf worktree prepare <KEY> <repo>` prints the worktree path (a clone whose `origin` is the real remote). A rebuild reuses leftover work: check `git status` and the existing commits first, and finish what is there.
+2. `sf worktree prepare <KEY> <repo>` prints the worktree path: a clone of `origin` on your ticket branch. Its `origin` points nowhere, so you never reach the network from it; code comes and goes as bundle files in `<dir>`. A rebuild reuses leftover work: check `git status` and the existing commits first, and finish what is there. If the clone is broken, rename its folder (`mv <path> <path>-broken`) and run `sf worktree prepare` again.
 3. `sf ticket set <KEY> --stage building`, on every attempt including a rebuild; the tick counts these history entries.
 
 ## 2. Implement
@@ -19,11 +19,12 @@ Load `/shopfloor:rules` first. Input is a ticket key. Work only in the ticket's 
 4. Keep checking the deal breakers in `/shopfloor:rules` as you learn more. If one shows up, or the change touches more than about twice the files the plan expected, stop and `sf chat ask`. Leave the worktree as it is.
 
 ## 3. Commit
-Small commits on your branch with Conventional Commit messages that carry the ticket key as scope, for example `feat(ENG-12): add rate limit`. Use `git commit -m` or `-F`. No attribution or sign-off lines of any kind. Then `sf sync <KEY> <repo>`: it fetches and rebases your branch onto `origin/<base>` from outside the sandbox. If it reports conflicts, it has already fetched, so run `git rebase origin/<base>` yourself, resolve each listed file, `git add` it and `git rebase --continue`.
+Small commits on your branch with Conventional Commit messages that carry the ticket key as scope, for example `feat(ENG-12): add rate limit`. Use `git commit -m` or `-F`. No attribution or sign-off lines of any kind. Then bring in the latest base: `sf sync <KEY> <repo>` fetches origin outside the sandbox and writes `<dir>/in-<repo>.bundle`; in the worktree run `git fetch <dir>/in-<repo>.bundle '+refs/heads/*:refs/remotes/origin/*'`, then `git rebase origin/<base>`. On conflicts, resolve each file, `git add` it and `git rebase --continue`.
 
 ## 4. Ship
 1. Write the PR body to `<dir>/pr-body.md`: what changed and why, how it was checked. No ticket text beyond the title, no secrets.
-2. `sf ship <KEY> <repo> --title "<type>(<KEY>): <summary>" --body-file <dir>/pr-body.md`. It pushes your `shopfloor/*` branch and opens the PR. Never push or open a PR any other way.
+2. Hand your branch to `sf`: `git bundle create <dir>/out-<repo>.bundle <branch>`, with the branch name `sf ticket show` reports.
+3. `sf ship <KEY> <repo> --title "<type>(<KEY>): <summary>" --body-file <dir>/pr-body.md`. It pushes that branch from the bundle and opens the PR. Never push or open a PR any other way.
 
 ## 5. Briefing
 The owner did not write this code and needs to understand it fast. Write `<dir>/briefing-draft.json` from the final diff and the code around it:
