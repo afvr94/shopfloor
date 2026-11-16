@@ -16,14 +16,14 @@ New crews start with `"dryRun": true`, enforced inside the `sf` command that cre
 
 `sf merge` refuses to merge while the crew is paused. `sf ship` and `sf push` push only `shopfloor/*` branches (no `..`), never the test branch, a protected branch or a repo base branch.
 
-Each ticket's repo is a full local clone of your checkout under the crew's `worktrees/<KEY>/<repo>` folder, with its `origin` set to the real remote. It is a clone rather than a git worktree so that its `.git` directory sits inside the sandbox's write area (section 4); your own checkout is only read and fetched. A clone that holds commits found nowhere on `origin` is moved aside into the ticket folder rather than deleted.
+Each ticket's repo is a clone under the crew's `worktrees/<KEY>/<repo>` folder, made from a bundle of `origin` and with its `origin` pointing nowhere. Its `.git` directory sits inside the sandbox's write area (section 4), so the crew owns it entirely and `sf` never runs git in it. Your own checkout is only read, for its `origin` URL. `merge-to-test-branch` merges in a copy of its own under `~/.shopfloor/state/<crew>/merge/`, which crews cannot write.
 
 ## 3. The guard
 
 Every tool call in a crew session passes through a `PreToolUse` hook before it runs. It:
 
 - allows only commands on a default-deny list; anything it cannot parse or recognise is blocked
-- blocks every `gh` call and `git push`, `git fetch` and `git pull`, with a reason naming the `sf` command that does the same (section 4); blocks rebase and `reset --hard` on protected branches, and otherwise runs local git only in the crew's worktrees
+- blocks every `gh` call and `git push`, `git pull` and any `git fetch` that is not from a `.bundle` file in the ticket folder, with a reason naming the `sf` command that does the same (section 4); allows `git bundle create` only into the ticket folder; blocks rebase and `reset --hard` on protected branches (reading the branch from `.git/HEAD` as text, never by running git), and otherwise runs local git only in the crew's worktrees
 - blocks direct calls to the Linear and Slack APIs
 - blocks commands and file tools that name a secret path: `.env` files, `~/.shopfloor/secrets`, the crew's token files, `guard.secretFiles`, `guard.offLimits` and the credential defaults listed in section 6
 - allows writes only inside the crew's worktrees and tickets folders (and the system temp directory); inside those it still blocks `.git` and `.claude` paths, each ticket's `state.json` and `briefing.json` (only `sf` writes those), and `CLAUDE.md` or `AGENTS.md` at the worktrees root or in a ticket's folder there, which would become instructions for later sessions
@@ -50,20 +50,23 @@ Crews never run `gh` or network git themselves. Everything that reaches GitHub g
 - `sf pr view <KEY>`: each pull request on the ticket with its state, mergeability, draft flag, head commit, a summary of its checks, the review decision and review comments newer than the ticket's `reviewSeen` (author, body, and file and line for inline comments), as JSON with bodies redacted
 - `sf pr log <KEY> <run-id>`: the failed-step log of a CI run on the ticket's branch in one of its pull request repos, redacted and cut to the last 400 lines
 - `sf pr reply <KEY> <repo> <number> --body-file <file>`: a comment on one of the ticket's pull requests, redacted (a "would" line in dry run)
-- `sf push <KEY> <repo>`: pushes the ticket clone's branch, with the same branch rules as `sf ship` (a "would" line in dry run)
-- `sf sync <KEY> <repo>`: fetches and rebases the ticket branch onto `origin/<base>`; on a conflict it undoes the rebase and lists the conflicted files
+- `sf push <KEY> <repo>`: pushes the ticket's branch from the crew's `out-<repo>.bundle`, with the same branch rules as `sf ship` (a "would" line in dry run)
+- `sf sync <KEY> <repo>`: fetches origin and writes `in-<repo>.bundle` to the ticket folder; the crew fetches from it and rebases in its own clone
 
-Local git (`status`, `diff`, `log`, `add`, `commit`, `checkout`, a local `rebase`) and the repo's own toolchain stay sandboxed. `~/.ssh` and `~/.config/gh` stay on the deny-read list, and SSH or `gh` credentials are only ever used by `sf`. `shopfloor doctor --live` checks each repo's `origin` with `git ls-remote` through the same git `sf` uses.
+Local git (`status`, `diff`, `log`, `add`, `commit`, `checkout`, a local `rebase`, `bundle create`, a fetch from a bundle) and the repo's own toolchain stay sandboxed. `~/.ssh` and `~/.config/gh` stay on the deny-read list, and SSH or `gh` credentials are only ever used by `sf`. `shopfloor doctor --live` checks each repo's `origin` with `git ls-remote` from the crew's transport repo, the one `sf` pushes from.
 
-### Git in ticket clones
+### sf never runs git where a crew can write
 
-Sandboxed code can write a clone's `.git` directory, and `sf` then runs git there outside the sandbox. So every git call `sf` makes in a clone goes through one helper (`engine/lib/gitsafe.py`) that:
+Sandboxed code can write everything in a clone's `.git`: its config, hooks, `commondir`, attributes, even a repo in the folder above it. Git reads all of that before it does anything, so no checking or pinning of flags makes it safe for `sf` to run git there outside the sandbox. The rule instead is that `sf` never does. Every git command `sf` runs goes through one helper (`engine/lib/gitsafe.py`), which refuses any target directory or path argument inside a crew's `worktrees` or `tickets` folder (compared case-insensitively, after resolving symlinks). It also pins hooks off (`core.hooksPath=/dev/null`), `core.fsmonitor`, pagers, the `ext::` transport and submodule recursion, sets `core.sshCommand=ssh` and your global credential helpers, and sets `GIT_CEILING_DIRECTORIES` so git never looks above the folder it was given.
 
-- turns off hooks (`core.hooksPath=/dev/null`), `core.fsmonitor`, pagers (`core.pager=cat`), the `ext::` transport and submodule recursion, sets `core.sshCommand=ssh`, and replaces any credential helper with the helpers from your global git config, all on the command line, where they win over any config file; it also sets `GIT_CONFIG_NOSYSTEM=1` and `GIT_TERMINAL_PROMPT=0`, and adds `--no-verify` to push, commit and merge
-- checks the clone's `.git/config` before every call against a digest `sf` recorded when it built the clone. The clone is built in a folder the crew cannot write, its digest is stored under `~/.shopfloor/state/<crew>/clones/` (outside the sandbox's write area, and blocked by the guard), and only then is it moved into the worktrees folder. Branch tracking entries and `user.name`/`user.email` may change; anything else (an `include.path`, a new hook path, a rewritten remote) makes `sf` refuse with "clone config changed", log a run line, and the crew hands the ticket to you
-- pushes to the push URL of your own checkout's `origin`, with an explicit `HEAD:refs/heads/<branch>` refspec, so the clone's remote settings play no part
+Code moves between `sf` and a crew only as bundle files in the ticket folder:
 
-A leftover folder `sf` has no digest for is moved aside into the ticket folder without running git in it.
+- **Transport repo.** For each crew and repo, `sf` keeps a bare repo at `~/.shopfloor/state/<crew>/transport/<repo>.git`, outside the sandbox's write area and blocked by the guard. Its `origin` is your checkout's `origin` URL. It is the only place `sf` fetches or pushes, with explicit `--upload-pack`/`--receive-pack`.
+- **New clone** (`sf worktree prepare`): `sf` fetches origin into the transport repo, bundles `origin/<base>` (and the ticket branch if it exists) into a private folder under the state dir, clones that bundle there, checks out the ticket branch, points the clone's `origin` at `file:///nonexistent`, and moves the finished clone into `worktrees/<KEY>/<repo>`. It also leaves the bundle as `in-<repo>.bundle` in the ticket folder. If the clone already exists, `sf` leaves it alone and only refreshes the bundle; a broken clone is the crew's to rename and prepare again.
+- **Sync** (`sf sync`): `sf` fetches origin into the transport repo and writes `in-<repo>.bundle`. The crew, in the sandbox, runs `git fetch <bundle> '+refs/heads/*:refs/remotes/origin/*'` and rebases.
+- **Push** (`sf push`, `sf ship`): the crew, in the sandbox, runs `git bundle create <ticket folder>/out-<repo>.bundle <branch>`. `sf` copies the bundle out without following a symlink, verifies it, and fetches only the ticket's recorded branch from it into the transport repo; a bundle without that branch is refused and any other refs in it are ignored. It then pushes that branch with `--force-with-lease` against the sha the transport repo last saw on origin, so it never overwrites a push made by someone else.
+
+Reading a bundle runs no repository config, so nothing a crew plants in its clone, in a parent folder or in a bundle runs as `sf`.
 
 On Linux the sandbox needs bubblewrap (`bwrap`) and `socat`; on macOS it uses `sandbox-exec`. `shopfloor doctor` checks for them, and `shopfloor doctor --live` starts one real sandboxed crew session in a temp folder to prove a sandboxed write and an `sf` write both work.
 
