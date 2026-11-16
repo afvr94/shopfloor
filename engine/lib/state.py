@@ -139,7 +139,7 @@ def _blank(key: str) -> dict:
 
 
 def load_ticket(crew_id: str, key: str) -> dict:
-    stored = _read_json(paths.ticket_dir(crew_id, key) / "state.json") or {}
+    stored = _read_json(paths.ticket_state_dir(crew_id, key) / "state.json") or {}
     return {**_blank(key), **stored}
 
 
@@ -150,7 +150,7 @@ def save_ticket(crew_id: str, key: str, **changes) -> dict:
     stage = changes.get("stage")
     if "stage" in changes and stage not in STAGES:
         raise ValueError(f"unknown stage: {stage!r}")
-    path = paths.ticket_dir(crew_id, key) / "state.json"
+    path = paths.ticket_state_dir(crew_id, key) / "state.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     # Serialize read-modify-write so concurrent savers don't drop each other's fields.
     with open(path.parent / "state.lock", "a") as lk:
@@ -167,7 +167,7 @@ def save_ticket(crew_id: str, key: str, **changes) -> dict:
 
 def list_tickets(crew_id: str) -> list[dict]:
     """All tickets for a crew, most recently updated first."""
-    root = paths.crew_state_dir(crew_id) / "tickets"
+    root = paths.ticket_state_root(crew_id)
     if not root.is_dir():
         return []
     tickets = [load_ticket(crew_id, d.name) for d in root.iterdir()

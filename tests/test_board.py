@@ -86,7 +86,7 @@ class ServerTest(BoardCase):
         self.assertEqual(crew["tickets"][0]["key"], "ENG-1")
 
     def test_briefing_route_renders_and_404s(self):
-        d = paths.ticket_dir("demo", "ENG-1")
+        d = paths.ticket_state_dir("demo", "ENG-1")
         d.mkdir(parents=True)
         (d / "briefing.json").write_text(json.dumps({"title": "Hello brief", "whatWhy": "because"}))
         code, text = self.req("GET", "/briefing/demo/ENG-1")

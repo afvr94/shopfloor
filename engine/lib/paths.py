@@ -45,9 +45,24 @@ def build_lock(crew_id: str) -> Path:
     return crew_dir(crew_id) / "build.lock"
 
 
+def tickets_dir(crew_id: str) -> Path:
+    """The crews' scratch folders, one per ticket: inside the sandbox's write roots."""
+    return crew_state_dir(crew_id) / "tickets"
+
+
 def ticket_dir(crew_id: str, key: str) -> Path:
     check(TICKET_KEY_RE, key, "ticket key")
-    return crew_state_dir(crew_id) / "tickets" / key
+    return tickets_dir(crew_id) / key
+
+
+def ticket_state_root(crew_id: str) -> Path:
+    return crew_dir(crew_id) / "ticketstate"
+
+
+def ticket_state_dir(crew_id: str, key: str) -> Path:
+    """sf's own records for a ticket (state, branch, validated briefing): outside every crew write root."""
+    check(TICKET_KEY_RE, key, "ticket key")
+    return ticket_state_root(crew_id) / key
 
 
 def worktrees_dir(crew_id: str) -> Path:

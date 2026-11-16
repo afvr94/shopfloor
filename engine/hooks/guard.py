@@ -28,7 +28,6 @@ except Exception as e:  # reported by main(), which then blocks
 
 FREE_TOOLS = {"TodoWrite", "Task", "Agent", "Skill", "WebSearch", "ExitPlanMode", "BashOutput",
               "KillShell", "KillBash"}
-SF_FILES = {"state.json", "briefing.json"}
 MEMORY_FILES = {"claude.md", "agents.md"}
 BRANCH_PREFIX = "shopfloor/"
 HOSTS = ("linear.app", "slack.com", "api.github.com")
@@ -111,7 +110,9 @@ class Guard:
         self.roots = self.crew_dirs + [os.path.realpath(r) for r in roots if r]
         self.devices = {os.path.realpath(d) for d in ("/dev/null", "/dev/stdout", "/dev/stderr")} | {"/dev/null"}
         self.repos = [os.path.realpath(os.path.expanduser(r["path"])) for r in repos if r.get("path")]
-        self.no_write = [os.path.realpath(paths.ENGINE_DIR)] + self.secrets + self.repos
+        # sf's records (ticket state, branch, briefing): sf and the board trust them, so no crew writes there
+        self.no_write = [os.path.realpath(paths.ENGINE_DIR), os.path.join(state, "ticketstate")] + self.secrets + \
+            self.repos
         self.sf_bin = os.path.realpath(paths.ENGINE_DIR / "bin" / "sf")
         self.branch_unknown = False
 
@@ -155,8 +156,6 @@ class Guard:
                 (_under(p, [self.home], fold=True) and not _under(p, self.crew_dirs)):
             block(f"{p} is off limits (engine, crew config, crew state, secrets, main checkouts)")
         base = os.path.basename(p).casefold()
-        if _under(p, [self.tickets], fold=True) and (base in SF_FILES or base.endswith(".lock")):
-            block(f"{p} belongs to sf")
         wts = self.crew_dirs[0]
         if base in MEMORY_FILES and _under(p, [wts], fold=True) and p[len(wts):].strip("/").count("/") <= 1:
             block(f"{p} would become instructions for every crew session; crews don't write it")

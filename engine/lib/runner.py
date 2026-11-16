@@ -35,7 +35,7 @@ def claude_invocation(crew_id: str, prompt: str) -> tuple[list[str], dict]:
         # sf writes crew state and pushes for ship/merge; it is the trusted mediator and the guard checks its args
         "excludedCommands": SF_EXCLUDED,
         "filesystem": {"allowWrite": [str(paths.worktrees_dir(crew_id)),
-                                      str(paths.crew_state_dir(crew_id) / "tickets"),
+                                      str(paths.tickets_dir(crew_id)),
                                       tempfile.gettempdir()],
                        "denyRead": config.secret_paths(config.load_crew(crew_id))},
     }}

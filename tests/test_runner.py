@@ -70,6 +70,8 @@ class RunnerTest(unittest.TestCase):
                                                           tempfile.gettempdir()],
                                            "denyRead": deny}}}
         self.assertEqual(json.loads(argv[-1]), want)
+        self.assertFalse(any(w.startswith(str(paths.ticket_state_root("demo"))) for w in
+                             json.loads(argv[-1])["sandbox"]["filesystem"]["allowWrite"]))
         for p in ("~/.ssh", "~/.config/gh", "~/.claude.json"):
             self.assertIn(os.path.expanduser(p), deny)
 

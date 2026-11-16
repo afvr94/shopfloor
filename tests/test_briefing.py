@@ -41,7 +41,7 @@ class Writer(Base):
         d["diagram"] = "flowchart TD\nA-->B"
         d["size"] = "small"
         p = briefing.write_briefing("crew-a", "ENG-1", d)
-        self.assertEqual(p, paths.ticket_dir("crew-a", "ENG-1") / "briefing.json")
+        self.assertEqual(p, paths.ticket_state_dir("crew-a", "ENG-1") / "briefing.json")
         self.assertEqual(json.loads(p.read_text()), d)
         self.assertEqual([x.name for x in p.parent.iterdir()], ["briefing.json"])
 

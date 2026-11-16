@@ -76,7 +76,7 @@ def validate_briefing(data: dict) -> list[str]:
 
 
 def write_briefing(crew_id: str, key: str, data: dict) -> Path:
-    path = paths.ticket_dir(crew_id, key) / "briefing.json"
+    path = paths.ticket_state_dir(crew_id, key) / "briefing.json"
     if errs := validate_briefing(data):
         raise BriefingError("; ".join(errs))
     atomic_write(path, json.dumps(data, indent=2) + "\n")

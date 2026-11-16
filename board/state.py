@@ -80,8 +80,7 @@ def board_state() -> dict:
 
 def briefing_data(crew_id: str, key: str) -> dict | None:
     try:
-        d = json.loads((paths.crew_dir(crew_id) / "tickets" / paths.check(paths.TICKET_KEY_RE, key, "ticket key")
-                        / "briefing.json").read_text())
+        d = json.loads((paths.ticket_state_dir(crew_id, key) / "briefing.json").read_text())
     except (OSError, ValueError):
         return None
     return d if isinstance(d, dict) else None

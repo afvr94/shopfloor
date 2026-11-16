@@ -341,6 +341,7 @@ class SfPrTest(SfCase):
         state.save_ticket("demo", "ENG-1", branch="shopfloor/eng-1-x",
                           prs=[{"repo": "app", "number": 7, "url": "https://github.com/o/app/pull/7"}])
         self.dir = paths.ticket_dir("demo", "ENG-1")
+        self.dir.mkdir(parents=True)
 
     def gh(self, answers):
         fake = FakeGH(answers)

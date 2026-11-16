@@ -101,7 +101,7 @@ class TicketTest(Base):
     def test_load_missing_ticket_is_fresh_and_unwritten(self):
         t = state.load_ticket("a", "ENG-1")
         self.assertEqual((t["key"], t["stage"], t["prs"], t["history"]), ("ENG-1", None, [], []))
-        self.assertFalse(paths.ticket_dir("a", "ENG-1").exists())
+        self.assertFalse(paths.ticket_state_dir("a", "ENG-1").exists())
 
     def test_save_ticket_records_stage_history(self):
         state.save_ticket("a", "ENG-1", stage="claimed", title="T")
@@ -124,7 +124,7 @@ class TicketTest(Base):
     def test_list_tickets_sorted_by_updated(self):
         state.save_ticket("a", "ENG-1", stage="claimed")
         state.save_ticket("a", "ENG-2", stage="claimed")
-        p = paths.ticket_dir("a", "ENG-1") / "state.json"
+        p = paths.ticket_state_dir("a", "ENG-1") / "state.json"
         d = json.loads(p.read_text())
         d["updatedAt"] = "2999-01-01T00:00:00Z"
         p.write_text(json.dumps(d))
