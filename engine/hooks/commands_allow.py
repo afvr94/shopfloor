@@ -192,22 +192,90 @@ def abbreviates(name: str, options) -> bool:
 NPX_TOOLS = {"tsc", "eslint", "prettier", "jest", "vitest"}
 RUNNER_SUBCOMMANDS = {"npm": {"exec", "x", "explore", "edit"}, "pnpm": {"exec", "dlx", "x"}, "yarn": {"dlx", "exec"},
                       "bun": {"x"}, "uv": {"run", "tool"}, "poetry": {"run", "shell"}, "bundle": {"exec"}}
-MAKE_DENY_LONG = {"--file", "--makefile", "--eval", "--directory", "--include-dir"}
-OUT_OPTS = {"--output", "--out-dir", "--outdir", "--target", "--prefix", "--root", "--basetemp", "--cache-dir"}
+MAKE_DENY_LONG = {"--file", "--makefile", "--eval", "--directory", "--include-dir", "--environment-overrides"}
 PY_MODULES = {"pytest", "unittest", "pip", "black", "ruff", "mypy", "json.tool", "venv"}
 PIP_DENY = {"--target", "--prefix", "--root", "--user", "--src", "--editable"}
-FORMATTERS = {"prettier", "eslint", "black", "ruff"}
-# shortcut: a text tripwire for inline interpreter code; a script file can still do all of this
-INLINE_RISK = re.compile(
-    r"subprocess|os\.(?:system|popen|exec|spawn|remove|unlink|rename|replace|symlink|chmod)|\bpty\b|child_process"
-    r"|Deno\.(?:run|Command)|Bun\.spawn|\bspawn|popen|\b(?:exec|eval|execfile|compile|system)\s*\(|__import__"
-    r"|importlib|shutil|rmtree|write|append|\bfs\.|urllib|requests|http\.client|socket|fetch\(|XMLHttpRequest"
-    r"|\bnet\.|Net::|open3|IO\.popen|`|%x|mode\s*="
-    r"|open\s*\([^)]*,\s*['\"][rbt+]*[wax]|\.open\s*\(\s*['\"][rbt+]*[wax]")
+# tools that rewrite, or emit output next to, the paths they are given
+IN_PLACE = {"prettier", "eslint", "black", "ruff", "tsc"}
+TEST_RUNNERS = {"pytest", "jest", "vitest"}
+# options whose value names code or config a tool loads (matched case-insensitively, abbreviations included)
+CODE_LONG = {"--config", "--config-file", "--rootdir", "--root", "--dir", "--setupfiles", "--setupfilesafterenv",
+             "--globalsetup", "--globalteardown", "--project", "--projects", "--rulesdir",
+             "--resolve-plugins-relative-to", "--plugin", "--require", "--import", "--loader",
+             "--experimental-loader", "--preload", "--testrunner", "--resolver", "--transform", "--preset",
+             "--confcutdir", "--testenvironment", "--environment", "--snapshotresolver", "--watchplugins",
+             "--reporter", "--reporters", "--import-map", "--env-file"}
+CODE_SHORT = {"jest": "c", "vitest": "cr", "eslint": "c", "tsc": "p", "pytest": "c", "node": "r", "nodejs": "r",
+              "bun": "r", "ruby": "rIC", "php": "fcd"}
+# short letters that take program text from argv; python is parsed exactly in python_args
+INLINE_SHORT = {"node": "ep", "nodejs": "ep", "ruby": "e", "php": "rRBEF", "bun": "ep", "deno": ""}
+INLINE_LONG = {"--eval", "--eval-file", "--print"}
+PY_VALUE = set("WX")
+CURL_OUT = {"-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar", "--trace", "--trace-ascii", "--stderr",
+            "--output-dir"}
+WGET_OUT = {"-O", "--output-document", "-o", "--output-file", "-a", "--append-output", "-P", "--directory-prefix"}
+# long options that write, run code or take a value, per command: getopt accepts any unambiguous prefix
+LONG_OPTS = {
+    "sed": {"--in-place", "--expression", "--file"},
+    "awk": {"--source", "--include", "--file", "--load", "--exec"},
+    "sort": {"--compress-program", "--output", "--key", "--field-separator", "--temporary-directory"},
+    "cp": {"--link", "--symbolic-link"},
+    "curl": CURL_OUT | {"--config", "--remote-name", "--remote-name-all", "--upload-file", "--data", "--form"},
+    "wget": WGET_OUT | {"--input-file", "--execute", "--config", "--post-file", "--body-file"},
+    "gh": {"--method", "--field", "--raw-field", "--input", "--approve", "--request-changes", "--repo"},
+}
+LONG_OPTS["gawk"] = LONG_OPTS["awk"]
+for _exe, _vals in WRITER_VALUES.items():
+    LONG_OPTS[_exe] = LONG_OPTS.get(_exe, set()) | {o for o in _vals if o.startswith("--")}
 
 
-def toolchain(exe: str, words: list, write) -> None:
-    """Checks for the build and test tools: runners that exec other programs block, outputs stay in write roots."""
+def expand_long(exe: str, args: list) -> list:
+    """Spell out abbreviated long options (--in-pl=x is --in-place=x) so exact-name checks see them."""
+    opts, out = LONG_OPTS.get(exe), []
+    for k, a in enumerate(args):
+        if a == "--":
+            return out + args[k:]
+        name, eq, val = a.partition("=")
+        full = sorted(o for o in opts or () if o.startswith(name)) if a.startswith("--") and len(name) > 2 else []
+        out.append(full[0] + eq + val if full and name not in opts else a)
+    return out
+
+
+def looks_like_path(v: str) -> bool:
+    return "/" in v or v.startswith(("~", "."))
+
+
+def option_values(args: list) -> list:
+    """Path-like values any option could carry (--opt=v, --opt v, -x v), with the v of k=v too."""
+    vals = []
+    for k, a in enumerate(args):
+        if not a.startswith("-") or a in ("-", "--"):
+            continue
+        name, eq, val = a.partition("=")
+        if eq:
+            vals.append(val)
+        elif k + 1 < len(args) and not args[k + 1].startswith("-"):
+            vals.append(args[k + 1])
+    vals += [v.partition("=")[2] for v in vals if "=" in v]
+    return [v for v in vals if looks_like_path(v)]
+
+
+def code_values(exe: str, args: list) -> list:
+    """Values of the options that name code or config the tool loads."""
+    out = []
+    for k, a in enumerate(args):
+        name, eq, val = a.partition("=")
+        if a.startswith("--") and abbreviates(name.lower(), CODE_LONG):
+            out.append(val if eq else args[k + 1] if k + 1 < len(args) else "")
+        elif not a.startswith("--"):
+            out += [short_value(args, k, ch).lstrip("=") for ch in CODE_SHORT.get(exe, "")
+                    if short_value(args, k, ch) is not None]
+    return out + [v.partition("=")[2] for v in out if "=" in v]
+
+
+def toolchain(exe: str, words: list, write, code) -> None:
+    """Checks for the build and test tools: runners that exec other programs block, outputs stay in write roots,
+    and the code and config they load come from the worktree."""
     args = words[1:]
     pos = [a for a in args if not a.startswith("-")]
     for a in args:
@@ -217,6 +285,7 @@ def toolchain(exe: str, words: list, write) -> None:
         rest = [a for a in args if a not in ("-y", "--yes", "--no-install")]
         if not rest or rest[0] not in NPX_TOOLS:
             block(f"npx may only run {', '.join(sorted(NPX_TOOLS))}")
+        return toolchain(rest[0], rest, write, code)
     if pos[:1] and pos[0] in RUNNER_SUBCOMMANDS.get(exe, ()):
         block(f"{exe} {pos[0]} runs another program the guard can't follow")
     if exe in ("npm", "pnpm", "yarn") and any(a in ("-c", "--call") or abbreviates(a.partition("=")[0], {
@@ -226,27 +295,32 @@ def toolchain(exe: str, words: list, write) -> None:
         for p in pos[1:]:
             if "@" in p:
                 block("go run of a remote module is not allowed")
-            write(p)
+            code(p)
     if exe == "make":
-        for a in args:
-            if (a.startswith("--") and abbreviates(a.partition("=")[0], MAKE_DENY_LONG)) or \
-                    short_chars(a) & set("fECI") and not a.startswith("--"):
-                block("make may only run the worktree's Makefile (no -f, -C, -I or --eval)")
+        make(args)
     if exe in ("pip", "pip3"):
         pip(args)
-    for k, a in enumerate(args):
-        name, eq, val = a.partition("=")
-        nxt = args[k + 1] if k + 1 < len(args) else ""
-        if a == "-o":
-            write(nxt)
-        elif a.startswith("-o") and not a.startswith("--") and len(a) > 2:
+    for v in option_values(args):
+        write(v)
+    for a in args:
+        if a.startswith("-o") and not a.startswith("--") and len(a) > 2:
             write(a[2:])
-        elif a.startswith("--") and abbreviates(name, OUT_OPTS):
-            write(val if eq else nxt)
-    if exe in FORMATTERS:
-        for p in pos:
-            if p not in ("check", "format"):
-                write(p)
+    for v in code_values(exe, args):
+        code(v)
+    for p in pos:
+        if exe in TEST_RUNNERS:
+            code(p)
+        if exe in IN_PLACE and p not in ("check", "format"):
+            write(p)
+
+
+def make(args: list) -> None:
+    for a in args:
+        if (a.startswith("--") and abbreviates(a.partition("=")[0], MAKE_DENY_LONG)) or \
+                short_chars(a) & set("fECIe") and not a.startswith("--"):
+            block("make may only run the worktree's Makefile (no -f, -C, -I, -e or --eval)")
+        if not a.startswith("-") and ASSIGN.match(a):
+            block("make variables can't be set from the command line; they can replace SHELL or load makefiles")
 
 
 def pip(args: list) -> None:
@@ -258,28 +332,60 @@ def pip(args: list) -> None:
             block("pip may only install into the active environment")
 
 
-def python_module(args: list, write) -> None:
-    """python -m: only the listed modules, with their write targets checked."""
-    k = next((i for i, a in enumerate(args) if a == "-m" or a.startswith("-m")), None)
-    if k is None:
-        return
-    mod = args[k][2:] or (args[k + 1] if k + 1 < len(args) else "")
-    rest = args[k + 2:] if args[k] == "-m" else args[k + 1:]
+def python_module(mod: str, rest: list, write, code) -> None:
+    """python -m: only the listed modules, checked as if run directly."""
     if mod not in PY_MODULES:
         block(f"python -m {mod} is not allowed")
     pos = [a for a in rest if not a.startswith("-")]
-    if mod == "pip":
-        pip(rest)
-    elif mod == "json.tool" and len(pos) > 1:
+    if mod == "json.tool" and len(pos) > 1:
         block("python -m json.tool may only print")
-    elif mod == "venv":
-        for p in pos:
+    for p in pos:
+        if mod == "venv":
             write(p)
-    elif mod in FORMATTERS:
-        for p in pos:
-            if p not in ("check", "format"):
-                write(p)
-    for j, a in enumerate(rest):
-        name, eq, val = a.partition("=")
-        if a.startswith("--") and abbreviates(name, OUT_OPTS):
-            write(val if eq else (rest[j + 1] if j + 1 < len(rest) else ""))
+        if mod == "unittest":
+            code(p)
+    toolchain(mod, [mod, *rest], write, code)
+
+
+def python_args(args: list, write, code) -> None:
+    """Parse python's own options exactly: -c is inline code, -m hands off, the first word is the script."""
+    k = 0
+    while k < len(args):
+        a = args[k]
+        k += 1
+        if a == "--" or not a.startswith("-") or a == "-":
+            script = args[k] if a == "--" and k < len(args) else a
+            return code(script) if script not in ("-", "--") else None
+        if a.startswith("--"):
+            k += a == "--check-hash-based-pycs"
+            continue
+        for j, ch in enumerate(a[1:], 1):
+            glued = a[j + 1:]
+            if ch == "c":
+                block("inline interpreter code can't be checked; put it in a file in the worktree")
+            if ch == "m":
+                mod = glued or (args[k] if k < len(args) else "")
+                return python_module(mod, args[k:] if glued else args[k + 1:], write, code)
+            if ch in PY_VALUE:
+                k += not glued
+                break
+
+
+def interpreter(exe: str, args: list, write, code) -> None:
+    """Interpreters run only program files from the worktree: inline code is default-deny."""
+    if exe.startswith("python"):
+        return python_args(args, write, code)
+    inline = set(INLINE_SHORT.get(exe, ""))
+    for a in args:
+        if a == "--":
+            break
+        if short_chars(a) & inline or a.startswith("--") and abbreviates(a.partition("=")[0], INLINE_LONG):
+            block("inline interpreter code can't be checked; put it in a file in the worktree")
+    pos = [a for a in args if not a.startswith("-")]
+    if exe in ("deno", "bun") and any(re.match(r"[a-z]+:", p) for p in pos):
+        block(f"{exe} may only run files from the worktree, not URLs or packages")
+    # the grammar of these interpreters is large: every path-like word must be worktree code
+    words = [a for a in args if not a.startswith("-")] + option_values(args) + code_values(exe, args) + \
+        [a[2:] for a in args if a.startswith("-") and not a.startswith("--")]
+    for p in pos[:1] + [w for w in words if looks_like_path(w)]:
+        code(p)

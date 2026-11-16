@@ -16,11 +16,11 @@ if _ROOT not in sys.path:
 
 try:
     from engine.hooks.commands_allow import (
-        ADD_LONG, ADD_SHORT, ALLOWED, ASSIGN, BRANCH_LIST_FLAGS, COMMIT_LONG, COMMIT_SHORT, ENV_DENY, ENV_OK,
-        FILE_OPS, FIND_ACTIONS, GH_READ, GIT_CONFIG_OK, GIT_GLOBAL_FLAGS, GIT_LOCAL, GIT_LONG, GIT_READ,
-        GIT_SHORT_DENY, HANDOFF, INLINE_RISK, KEYWORDS, LANGS, MESSAGE_OPTS, NET_TOOLS, PATH_ARGS, READ_VALUES,
-        SED_CMD, SED_FLAG, SYSTEM_BIN, TAG_LIST_FLAGS, TOOLCHAIN, WRAP_VALUES, WRAPPERS, WRITER_VALUES, Blocked,
-        abbreviates, block, positionals, python_module, short_chars, short_value, toolchain)
+        ADD_LONG, ADD_SHORT, ALLOWED, ASSIGN, BRANCH_LIST_FLAGS, COMMIT_LONG, COMMIT_SHORT, CURL_OUT, ENV_DENY,
+        ENV_OK, FILE_OPS, FIND_ACTIONS, GH_READ, GIT_CONFIG_OK, GIT_GLOBAL_FLAGS, GIT_LOCAL, GIT_LONG, GIT_READ,
+        GIT_SHORT_DENY, HANDOFF, KEYWORDS, LANGS, MESSAGE_OPTS, NET_TOOLS, PATH_ARGS, READ_VALUES, SED_CMD,
+        SED_FLAG, SYSTEM_BIN, TAG_LIST_FLAGS, TOOLCHAIN, WGET_OUT, WRAP_VALUES, WRAPPERS, WRITER_VALUES, Blocked,
+        abbreviates, block, expand_long, interpreter, positionals, short_chars, short_value, toolchain)
     from engine.hooks.shell import SUB, Unparseable, lex, literal, structure
     from engine.lib import config, paths
     from engine.lib.cli import WRITE_COMMANDS
@@ -33,8 +33,6 @@ FREE_TOOLS = {"TodoWrite", "Task", "Agent", "Skill", "WebSearch", "WebFetch", "E
 BRANCH_PREFIX = "shopfloor/"
 HOSTS = ("linear.app", "slack.com", "api.github.com")
 NET_MSG = "tracker and chat writes go through sf"
-# shortcut: a text tripwire for inline code; a script file that pushes is not seen
-INLINE_GIT = re.compile(r"\bgit\W+(?:\S+\W+)?(?:push|merge)\b|\bgh\W+(?:pr|api)\b")
 ENV_FILES_OK = {".env.example", ".env.sample", ".env.template"}
 BRACES = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")
 HOME_VARS = re.compile(r"\$(?:\{(HOME|TMPDIR)\}|(HOME|TMPDIR)\b)")
@@ -82,6 +80,14 @@ def _read_candidates(w: str) -> list:
     return out + [c[1:] for c in out if c[:1] in ("@", "<")]
 
 
+def _glued_suffixes(w: str) -> list:
+    """Every tail of a short-option cluster (-sT<path>, -sd@<path>): any letter may be the one taking a value."""
+    if not w.startswith("-") or w.startswith("--"):
+        return []
+    tails = [w[i:] for i in range(2, len(w))]
+    return tails + [t[1:] for t in tails if t[:1] in ("@", "<")]
+
+
 def _dynamic(w: str) -> bool:
     return resolve(w, "/") is None
 
@@ -110,7 +116,6 @@ class Guard:
         self.repos = [os.path.realpath(os.path.expanduser(r["path"])) for r in repos if r.get("path")]
         self.no_write = [os.path.realpath(paths.ENGINE_DIR)] + self.secrets + self.repos
         self.sf_bin = os.path.realpath(paths.ENGINE_DIR / "bin" / "sf")
-        self.inline_secrets = [self.home, "secrets", ".env"] + [os.path.expanduser(t) for t in tokens if t]
         self.branch_unknown = False
 
     # -- reads and writes --
@@ -157,6 +162,12 @@ class Guard:
             block(f"{p} belongs to sf")
         if not _under(p, self.roots):
             block(f"writes stay in the crew's worktrees, tickets or a temp dir, not {p}")
+
+    def code(self, text: str, cwd: str | None):
+        """Programs, tests and configs a toolchain loads must come from the crew's worktrees."""
+        p = resolve(text, cwd)
+        if p is None or not _under(p, self.crew_dirs[:1]):
+            block(f"programs, tests and configs run only from the crew's worktrees, not {literal(text)!r}")
 
     def search(self, tool: str, ti: dict, cwd: str):
         root = ti.get("path") or cwd
@@ -260,10 +271,13 @@ class Guard:
             return resolve(args[0] if args else "~", cwd) if args[:1] != ["-"] else None
         if exe == "popd":
             return None
+        words = [words[0], *expand_long(exe, words[1:])]
         args = words[1:]
         for w in args:
             for c in _read_candidates(w):
                 self.read(c, cwd, tree=exe != "ls")
+            for c in _glued_suffixes(w):
+                self.read(c, cwd)
         self.assignments(exe, args)
         if exe in PATH_ARGS and any(_dynamic(w) for w in args):
             block(f"{exe} with a run-time argument can't be checked")
@@ -280,7 +294,7 @@ class Guard:
         if exe in TOOLCHAIN and not LANGS.fullmatch(exe):
             if any(os.path.basename(t) in HANDOFF for w in args for t in literal(w).split()):
                 block(f"{exe} would run a command the guard can't follow; run it directly")
-            toolchain(exe, words, lambda p: self.write(p, cwd))
+            toolchain(exe, words, lambda p: self.write(p, cwd), lambda p: self.code(p, cwd))
         if exe in ("sed", "awk", "gawk", "sort"):
             self.text_tool(exe, args)
         if exe == "deno" and args[:1] == ["eval"]:
@@ -324,29 +338,18 @@ class Guard:
 
     def interp(self, exe: str, words: list, cwd: str | None):
         args = words[1:]
-        text = literal(" ".join(args))
-        inline = [literal(args[k + 1]) for k, a in enumerate(args[:-1])
-                  if a in ("-c", "-e", "-E", "--eval", "-p", "--print") or re.fullmatch(r"-[A-Za-z]*[ceEp]", a)]
-        if any(INLINE_RISK.search(code) for code in inline):
-            block("inline code that runs programs, writes files or opens connections can't be checked; "
-                  "put it in a test or script")
-        if exe.startswith("python"):
-            python_module(args, lambda p: self.write(p, cwd))
         if exe == "bun" and [x for x in args if not x.startswith("-")][:1] == ["x"]:
             block("bun x runs another program the guard can't follow")
-        if any(h in text.lower() for h in HOSTS):
+        if any(h in literal(" ".join(args)).lower() for h in HOSTS):
             block(NET_MSG)
-        if INLINE_GIT.search(text):
-            block("inline code that runs git push/merge or gh can't be checked; run the command directly")
-        if any(s in text for s in self.inline_secrets):
-            block("interpreter code that names secrets, .env or the shopfloor home is not allowed")
         if exe == "ruby" and any(re.fullmatch(r"-[A-Za-z]*i.*", a) for a in args):
             block("ruby -i edits files the guard can't check; use the Edit tool")
         pos = [a for a in args if not a.startswith("-")]
         if pos and os.path.basename(pos[0]) == "sf":
             return self.sf(words[words.index(pos[0]):])
-        flags = {"--eval", "--print", "--version", "--help", "-V", "-h"}
-        if not pos and not any(a in flags or re.fullmatch(r"-[A-Za-z]*[ceEmp]", a) for a in args):
+        interpreter(exe, args, lambda p: self.write(p, cwd), lambda p: self.code(p, cwd))
+        flags = {"--version", "--help", "-V", "-h"}
+        if not pos and not any(a in flags or re.fullmatch(r"-[A-Za-z]*m.*", a) for a in args):
             block(f"{exe} reading its program from stdin can't be checked")
 
     def network(self, exe: str, words: list, cwd: str | None):
@@ -357,9 +360,7 @@ class Guard:
         curl = exe == "curl"
         config_opts = ("--config",) if curl else ("--input-file", "--execute", "--config")
         config_chars = "K" if curl else "ie"
-        out_opts = {"-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar", "--trace", "--trace-ascii",
-                    "--stderr", "--output-dir"} if curl else {"-O", "--output-document", "-o", "--output-file",
-                                                               "-a", "--append-output", "-P", "--directory-prefix"}
+        out_opts = CURL_OUT if curl else WGET_OUT
         to_cwd = not curl and exe == "wget"
         for k, a in enumerate(words[1:], 1):
             name, eq, val = a.partition("=")
