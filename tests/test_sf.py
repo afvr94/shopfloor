@@ -327,10 +327,11 @@ class FakeGH:
     def __init__(self, answers):
         self.answers, self.calls, self.bodies = answers, [], []
 
-    def __call__(self, args):
+    def __call__(self, args, input=None):
         self.calls.append(args)
         if "--body-file" in args:
-            self.bodies.append(Path(args[args.index("--body-file") + 1]).read_text())
+            assert args[args.index("--body-file") + 1] == "-"
+            self.bodies.append(input)
         for prefix, ans in self.answers.items():
             if " ".join(args).startswith(prefix):
                 if isinstance(ans, Exception):

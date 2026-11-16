@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
-import os
 import re
-import tempfile
 
 from engine.lib import state, transport
 from engine.lib.proc import ProcError, run
@@ -17,22 +15,16 @@ class GitFlowError(Exception):
     pass
 
 
-def _gh(args: list[str]) -> str:
-    return run(["gh", *args])
+def _gh(args: list[str], input: str | None = None) -> str:
+    return run(["gh", *args], input=input)
 
 
 GH = _gh  # tests replace this seam
 
 
 def gh_with_body(args: list[str], body: str) -> str:
-    """gh with --body-file, so the text never sits in argv."""
-    fd, name = tempfile.mkstemp(suffix=".md")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(body)
-        return GH([*args, "--body-file", name])
-    finally:
-        os.unlink(name)
+    """gh reads the body from stdin: never in argv, and never in a file a crew could swap before gh opens it."""
+    return GH([*args, "--body-file", "-"], input=body)
 
 
 def checks_green(rollup: list[dict]) -> bool:

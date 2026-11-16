@@ -17,9 +17,11 @@ class FakeGH:
     def __init__(self, answers=None):
         self.answers = answers or {}
         self.calls: list[list[str]] = []
+        self.inputs: list = []
 
-    def __call__(self, args):
+    def __call__(self, args, input=None):
         self.calls.append(args)
+        self.inputs.append(input)
         for prefix, ans in self.answers.items():
             if " ".join(args).startswith(prefix):
                 if isinstance(ans, Exception):
@@ -94,8 +96,9 @@ class TestShip(GitFlowCase):
         self.assertEqual(url, "https://github.com/o/app/pull/5")
         self.assertEqual(git(self.origin, "rev-parse", "shopfloor/abc-1-x"), git(d, "rev-parse", "HEAD"))
         create = [c for c in self.gh.calls if c[:2] == ["pr", "create"]][0]
-        self.assertIn("--body-file", create)
+        self.assertEqual(create[create.index("--body-file") + 1], "-")
         self.assertNotIn("body", create)
+        self.assertIn("body", self.gh.inputs)
         self.gh.answers = {"pr list": json.dumps([{"url": "https://github.com/o/app/pull/5"}])}
         self.gh.calls.clear()
         self.assertEqual(self.pf.ship("ABC-1", "app", "T", "body"), "https://github.com/o/app/pull/5")
