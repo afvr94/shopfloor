@@ -91,6 +91,20 @@ class ConfigTest(Base):
         (self.home / "crews" / "demo.json").write_text(json.dumps(cfg))
         self.assertEqual(config.load_crew("demo")["protectedBranches"], ["main", "master"])
 
+    def test_secret_paths_add_user_entries_to_credential_defaults(self):
+        cfg = example()
+        cfg["guard"] = {"secretFiles": ["~/keys/deploy.pem"], "offLimits": ["/srv/private"]}
+        cfg["tracker"]["tokenFile"] = "~/t/linear"
+        (self.home / "crews").mkdir()
+        (self.home / "crews" / "demo.json").write_text(json.dumps(cfg))
+        got = config.secret_paths(config.load_crew("demo"))
+        for p in ("~/.ssh", "~/.aws", "~/.config/gh", "~/.claude.json", "~/.claude/.credentials.json",
+                  "~/keys/deploy.pem", "~/t/linear"):
+            self.assertIn(os.path.expanduser(p), got)
+        self.assertIn("/srv/private", got)
+        self.assertIn(str(self.home / "secrets"), got)
+        self.assertEqual(len(got), len(set(got)))
+
     def test_load_crew_lists_every_problem(self):
         cfg = example()
         cfg["id"] = "Bad Id"
@@ -141,7 +155,7 @@ class ConfigTest(Base):
 
     def test_validate_repos_and_limits(self):
         def m(c):
-            c["repos"]["app"]["github"] = "nope"
+            c["repos"]["app"]["github"] = "o/app\nmore"
             c["limits"]["maxParallel"] = 0
         out = self.errors(m)
         self.assertIn("repos.app.github", out)

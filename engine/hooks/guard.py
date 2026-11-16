@@ -23,13 +23,14 @@ try:
         abbreviates, block, expand_long, interpreter, positionals, short_chars, short_value, toolchain)
     from engine.hooks.shell import SUB, Unparseable, lex, literal, structure
     from engine.lib import config, paths
-    from engine.lib.cli import WRITE_COMMANDS
     _IMPORT_ERROR = None
 except Exception as e:  # reported by main(), which then blocks
     _IMPORT_ERROR = e
 
-FREE_TOOLS = {"TodoWrite", "Task", "Agent", "Skill", "WebSearch", "WebFetch", "ExitPlanMode", "BashOutput",
+FREE_TOOLS = {"TodoWrite", "Task", "Agent", "Skill", "WebSearch", "ExitPlanMode", "BashOutput",
               "KillShell", "KillBash"}
+SF_FILES = {"state.json", "briefing.json"}
+MEMORY_FILES = {"claude.md", "agents.md"}
 BRANCH_PREFIX = "shopfloor/"
 HOSTS = ("linear.app", "slack.com", "api.github.com")
 NET_MSG = "tracker and chat writes go through sf"
@@ -100,12 +101,10 @@ class Guard:
         tb = flow.get("testBranch")
         self.protected = set(cfg.get("protectedBranches") or []) | {r.get("base") for r in repos} | \
             ({tb} if tb else set())
-        tracker, g = cfg.get("tracker") or {}, cfg.get("guard") or {}
+        tracker = cfg.get("tracker") or {}
         self.move_targets = {m.split("->")[-1] for m in tracker.get("mayMove", [])}
         home = paths.shopfloor_home()
-        tokens = [tracker.get("tokenFile"), (cfg.get("chat") or {}).get("tokenFile")]
-        secret = [home / "secrets", *g.get("secretFiles", []), *g.get("offLimits", []), *tokens]
-        self.secrets = [os.path.realpath(os.path.expanduser(str(p))) for p in secret if p]
+        self.secrets = [os.path.realpath(p) for p in config.secret_paths(cfg)]
         self.home = os.path.realpath(home)
         state = os.path.realpath(paths.crew_state_dir(cfg["id"]))
         self.tickets = os.path.join(state, "tickets")
@@ -157,9 +156,12 @@ class Guard:
         if _under(p, self.no_write, fold=True) or \
                 (_under(p, [self.home], fold=True) and not _under(p, self.crew_dirs)):
             block(f"{p} is off limits (engine, crew config, crew state, secrets, main checkouts)")
-        if _under(p, [self.tickets], fold=True) and \
-                (os.path.basename(p).casefold() == "state.json" or p.casefold().endswith(".lock")):
+        base = os.path.basename(p).casefold()
+        if _under(p, [self.tickets], fold=True) and (base in SF_FILES or base.endswith(".lock")):
             block(f"{p} belongs to sf")
+        wts = self.crew_dirs[0]
+        if base in MEMORY_FILES and _under(p, [wts], fold=True) and p[len(wts):].strip("/").count("/") <= 1:
+            block(f"{p} would become instructions for every crew session; crews don't write it")
         if not _under(p, self.roots):
             block(f"writes stay in the crew's worktrees, tickets or a temp dir, not {p}")
 
@@ -602,6 +604,9 @@ class Guard:
             block("use sf ship / sf merge instead of gh pr create/merge")
         if sub == "api":
             return self.gh_api(words)
+        if sub == "auth" and (sub2 == "token" or any("t" in short_chars(a) or a.startswith("--show-t")
+                                                      for a in words)):
+            block("printing the gh token is not allowed")
         if sub == "pr" and sub2 in ("comment", "review"):
             if self.dry:
                 block(f"dry run: gh pr {sub2} writes to GitHub")
@@ -631,8 +636,7 @@ class Guard:
         if any(_dynamic(p) for p in pos[:2]):
             block("can't check an sf command built at run time")
         a, b = (pos + ["", ""])[:2]
-        if self.dry and ((a, b) in WRITE_COMMANDS or (a, "") in WRITE_COMMANDS):
-            block(f"dry run: sf {' '.join(x for x in (a, b) if x)} is a write")
+        # in dry run sf itself refuses writes and logs the "would" line, so the crew sees what it would have done
         if (a, b) == ("tracker", "transition"):
             to = pos[3] if len(pos) > 3 else ""
             if _dynamic(to) or to not in self.move_targets:

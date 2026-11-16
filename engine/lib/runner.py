@@ -20,6 +20,9 @@ _NO_PROMPT_ENV = {"GIT_EDITOR": "true", "EDITOR": "true", "VISUAL": "true", "GIT
                   "GIT_TERMINAL_PROMPT": "0", "GIT_PAGER": "cat", "PAGER": "cat"}
 
 
+SF_EXCLUDED = ["sf *"]  # Bash rule syntax: sf with or without arguments
+
+
 class RunnerBusy(Exception):
     pass
 
@@ -29,12 +32,16 @@ def claude_invocation(crew_id: str, prompt: str) -> tuple[list[str], dict]:
         "enabled": True,
         "failIfUnavailable": True,
         "allowUnsandboxedCommands": False,
+        # sf writes crew state and pushes for ship/merge; it is the trusted mediator and the guard checks its args
+        "excludedCommands": SF_EXCLUDED,
         "filesystem": {"allowWrite": [str(paths.worktrees_dir(crew_id)),
                                       str(paths.crew_state_dir(crew_id) / "tickets"),
-                                      tempfile.gettempdir()]},
+                                      tempfile.gettempdir()],
+                       "denyRead": config.secret_paths(config.load_crew(crew_id))},
     }}
+    # --setting-sources "" loads none of the user's or a repo's settings, hooks or plugins; --settings still applies
     argv = ["claude", "-p", prompt, "--plugin-dir", str(paths.ENGINE_DIR), "--permission-mode",
-            "bypassPermissions", "--strict-mcp-config", "--settings", json.dumps(sandbox)]
+            "bypassPermissions", "--strict-mcp-config", "--setting-sources", "", "--settings", json.dumps(sandbox)]
     env = {k: v for k, v in os.environ.items() if k not in _DROPPED_ENV}
     env.update(_NO_PROMPT_ENV)
     env["SHOPFLOOR_CREW"] = crew_id

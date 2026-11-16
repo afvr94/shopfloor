@@ -100,11 +100,11 @@ ROWS = [
      "x=\"$(cat <<'EOF'\n)\nEOF\ngit push origin main\n)\"", {}, "wt", True),
     ("unquoted heredoc substitution", BASH, "cat <<EOF\n$(git push origin main)\nEOF", {}, "wt", True),
     # sf
-    ("sf transition dry run", BASH, "sf tracker transition ENG-1 review", DRY, "wt", True),
-    ("sf comment dry run", BASH, "sf tracker comment ENG-1 --body-file %WT%/c.md", DRY, "wt", True),
-    ("sf link-pr dry run", BASH, "sf tracker link-pr ENG-1 https://github.com/o/app/pull/7", DRY, "wt", True),
-    ("sf ship dry run", BASH, "sf ship ENG-1 app --title t --body-file b.md", DRY, "wt", True),
-    ("sf merge dry run", BASH, "sf merge ENG-1 app 7", DRY, "wt", True),
+    ("sf transition dry run (sf refuses it)", BASH, "sf tracker transition ENG-1 review", DRY, "wt", False),
+    ("sf comment dry run (sf refuses it)", BASH, "sf tracker comment ENG-1 --body-file %WT%/c.md", DRY, "wt", False),
+    ("sf link-pr dry run (sf refuses it)", BASH, "sf tracker link-pr ENG-1 https://github.com/o/app/pull/7", DRY, "wt", False),
+    ("sf ship dry run (sf refuses it)", BASH, "sf ship ENG-1 app --title t --body-file b.md", DRY, "wt", False),
+    ("sf merge dry run (sf refuses it)", BASH, "sf merge ENG-1 app 7", DRY, "wt", False),
     ("sf transition live", BASH, "sf tracker transition ENG-1 review", {}, "wt", False),
     ("sf comment live", BASH, "sf tracker comment ENG-1 --body-file %WT%/c.md", {}, "wt", False),
     ("sf link-pr live", BASH, "sf tracker link-pr ENG-1 https://github.com/o/app/pull/7", {}, "wt", False),
@@ -114,7 +114,8 @@ ROWS = [
     ("sf pause in dry run", BASH, "sf pause", DRY, "wt", False),
     ("sf transition not a mayMove target", BASH, "sf tracker transition ENG-1 done", {}, "wt", True),
     ("sf transition dynamic target", BASH, "sf tracker transition ENG-1 $TO", {}, "wt", True),
-    ("sf via engine path", BASH, "%ENGINE%/bin/sf merge ENG-1 app 7", DRY, "wt", True),
+    ("sf via engine path", BASH, "%ENGINE%/bin/sf merge ENG-1 app 7", DRY, "wt", False),
+    ("sf via engine path, bad move", BASH, "%ENGINE%/bin/sf tracker transition ENG-1 done", DRY, "wt", True),
     # network writes outside sf
     ("curl linear", BASH, "curl -X POST https://api.linear.app/graphql -d '{}'", {}, "wt", True),
     ("curl slack hook", BASH, "curl -d x https://hooks.slack.com/services/T/B/C", {}, "wt", True),
@@ -320,6 +321,32 @@ ROWS = [
     ("Write runs.jsonl", WRITE, {"file_path": "%STATE%/runs.jsonl", "content": "x"}, {}, "wt", True),
     ("Write lessons.json", WRITE, {"file_path": "%STATE%/lessons.json", "content": "x"}, {}, "wt", True),
     ("Write ticket state.json", WRITE, {"file_path": "%STATE%/tickets/ENG-1/state.json", "content": "x"}, {}, "wt", True),
+    ("Write ticket briefing.json", WRITE, {"file_path": "%STATE%/tickets/ENG-1/briefing.json", "content": "x"},
+     {}, "wt", True),
+    ("Write ticket Briefing.JSON", WRITE, {"file_path": "%STATE%/tickets/ENG-1/Briefing.JSON", "content": "x"},
+     {}, "wt", True),
+    ("redirect into briefing.json", BASH, "echo {} > %STATE%/tickets/ENG-1/briefing.json", {}, "wt", True),
+    ("Write ticket briefing draft", WRITE, {"file_path": "%STATE%/tickets/ENG-1/briefing-draft.json", "content": "x"},
+     {}, "wt", False),
+    ("Write CLAUDE.md at worktrees root", WRITE, {"file_path": "%WTS%/CLAUDE.md", "content": "x"}, {}, "wt", True),
+    ("Write agents.md at worktrees root", WRITE, {"file_path": "%WTS%/agents.md", "content": "x"}, {}, "wt", True),
+    ("Write CLAUDE.md in a ticket dir", WRITE, {"file_path": "%WT%/CLAUDE.md", "content": "x"}, {}, "wt", True),
+    ("redirect into AGENTS.md in a ticket dir", BASH, "echo x > %WT%/AGENTS.md", {}, "wt", True),
+    ("Edit the repo's own CLAUDE.md", EDIT, {"file_path": "%WT%/app/CLAUDE.md", "old_string": "a", "new_string": "b"},
+     {}, "wt", False),
+    ("WebFetch", "WebFetch", {"url": "https://example.com", "prompt": "x"}, {}, "wt", True),
+    ("WebSearch", "WebSearch", {"query": "x"}, {}, "wt", False),
+    ("gh auth token", BASH, "gh auth token", {}, "wt", True),
+    ("gh auth status -t", BASH, "gh auth status -t", {}, "wt", True),
+    ("gh auth status -ht", BASH, "gh auth status -h github.com -t", {}, "wt", True),
+    ("gh auth status --show-token", BASH, "gh auth status --show-token", {}, "wt", True),
+    ("gh auth status", BASH, "gh auth status", {}, "wt", False),
+    ("Read ~/.ssh key", READ, {"file_path": "~/.ssh/id_ed25519"}, {}, "wt", True),
+    ("cat ~/.aws credentials", BASH, "cat ~/.aws/credentials", {}, "wt", True),
+    ("cat ~/.config/gh hosts", BASH, "cat ~/.config/gh/hosts.yml", {}, "wt", True),
+    ("Read ~/.claude.json", READ, {"file_path": "~/.claude.json"}, {}, "wt", True),
+    ("Read ~/.netrc", READ, {"file_path": "~/.netrc"}, {}, "wt", True),
+    ("sf briefing write with a secret file", BASH, "sf briefing write ENG-1 ~/.ssh/id_rsa", {}, "wt", True),
     ("Write ticket lock", WRITE, {"file_path": "%STATE%/tickets/ENG-1/state.lock", "content": "x"}, {}, "wt", True),
     ("Write worktree .claude settings", WRITE, {"file_path": "%WT%/.claude/settings.local.json", "content": "x"},
      {}, "wt", True),
@@ -721,7 +748,7 @@ class GuardTest(unittest.TestCase):
         cls.cwds = {"wt": str(cls.wt), "main": str(main), "test": str(cls.test_wt)}
         cls.marks = {"%WT%": str(cls.wt), "%MAIN%": str(main), "%HOME%": str(h),
                      "%ENGINE%": str(paths.ENGINE_DIR), "%REPO_ROOT%": str(paths.REPO_ROOT),
-                     "%ME%": os.path.basename(os.path.expanduser("~")), "%STATE%": str(paths.crew_state_dir("demo"))}
+                     "%ME%": os.path.basename(os.path.expanduser("~")), "%WTS%": str(wts), "%STATE%": str(paths.crew_state_dir("demo"))}
         cls.guard = guard
         cls.cfg = config.load_crew("demo")
 
@@ -749,7 +776,8 @@ class GuardTest(unittest.TestCase):
         d = self.guard.decide
         self.assertIn("sf ship / sf merge", d(BASH, {"command": "gh pr create"}, self.cwds["wt"], self.cfg))
         self.assertIn("go through sf", d(BASH, {"command": "curl https://api.linear.app/x"}, self.cwds["wt"], self.cfg))
-        self.assertIn("dry run", d(BASH, {"command": "sf merge ENG-1 app 7"}, self.cwds["wt"], {**self.cfg, **DRY}))
+        self.assertIn("dry run", d(BASH, {"command": "git push origin shopfloor/eng-1-x"}, self.cwds["wt"],
+                                   {**self.cfg, **DRY}))
 
     def run_hook(self, stdin, crew="demo"):
         env = {k: v for k, v in os.environ.items() if k != "SHOPFLOOR_CREW"}

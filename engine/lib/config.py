@@ -13,6 +13,10 @@ class ConfigError(ValueError):
     pass
 
 
+# credential files no crew command may read; a crew's guard.secretFiles adds to these
+DEFAULT_SECRET_FILES = ["~/.ssh", "~/.aws", "~/.config/gh", "~/.netrc", "~/.npmrc", "~/.pypirc",
+                        "~/.docker/config.json", "~/.kube", "~/.gnupg", "~/.claude/.credentials.json", "~/.claude.json"]
+
 DEFAULTS = {
     "dryRun": True,
     "protectedBranches": ["main", "master"],
@@ -28,7 +32,7 @@ DEFAULTS = {
     "voice": {"name": "Shopfloor", "style": "plain"},
     "gitFlow": {"type": "pr-only", "testBranch": None, "mergeDenyPaths": []},
     "policyPacks": [],
-    "guard": {"offLimits": [], "secretFiles": []},
+    "guard": {"offLimits": [], "secretFiles": list(DEFAULT_SECRET_FILES)},
     "tracker": {"linear": {"label": "shopfloor", "holdLabels": ["hold"]}},
 }
 
@@ -44,7 +48,7 @@ BOARD_DEFAULTS = {
 PLAIN_STYLE = "Plain, neutral and brief. No jokes, slang or emoji."
 ID_RE = paths.CREW_ID_RE
 HHMM_RE = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
-GITHUB_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
+GITHUB_RE = re.compile(r"[\w.-]+/[\w.-]+")
 MOVE_RE = re.compile(r"^(\w+)->(\w+)$")
 
 
@@ -108,7 +112,7 @@ def validate(cfg: dict) -> list[str]:
         errs.append("repos must have at least one repo")
     for name, r in repos.items():
         r = r if isinstance(r, dict) else {}
-        if not (isinstance(r.get("github"), str) and GITHUB_RE.match(r["github"])):
+        if not (isinstance(r.get("github"), str) and GITHUB_RE.fullmatch(r["github"])):
             errs.append(f"repos.{name}.github must look like owner/name")
         for k in ("base", "path"):
             if not (isinstance(r.get(k), str) and r[k]):
@@ -145,6 +149,16 @@ def load_crew(crew_id: str) -> dict:
             cfg[section]["tokenFile"] = os.path.expanduser(cfg[section]["tokenFile"])
     cfg["policyPacks"] = [os.path.expanduser(p) for p in cfg["policyPacks"]]
     return cfg
+
+
+def secret_paths(cfg: dict) -> list[str]:
+    """Every path crews may not read: credential defaults, guard.secretFiles and offLimits, the secrets dir
+    and the crew's token files."""
+    g = cfg.get("guard") or {}
+    tokens = [(cfg.get(s) or {}).get("tokenFile") for s in ("tracker", "chat")]
+    raw = [*DEFAULT_SECRET_FILES, *g.get("secretFiles", []), *g.get("offLimits", []),
+           str(paths.shopfloor_home() / "secrets"), *tokens]
+    return list(dict.fromkeys(os.path.expanduser(str(p)) for p in raw if p))
 
 
 def read_secret(path: str) -> str:

@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from engine.lib import paths, runner, state
+from engine.lib import config, paths, runner, state
 
 FAKE_BIN = str(Path(__file__).resolve().parent / "bin")
 
@@ -43,8 +43,9 @@ class RunnerTest(unittest.TestCase):
                                           "CLAUDE_CODE_SSE_PORT": "9"}):
             argv, env = runner.claude_invocation("demo", "hello")
         self.assertEqual(argv[:3], ["claude", "-p", "hello"])
-        self.assertEqual(argv[3:9], ["--plugin-dir", str(paths.ENGINE_DIR), "--permission-mode",
-                                     "bypassPermissions", "--strict-mcp-config", "--settings"])
+        self.assertEqual(argv[3:11], ["--plugin-dir", str(paths.ENGINE_DIR), "--permission-mode",
+                                      "bypassPermissions", "--strict-mcp-config", "--setting-sources", "",
+                                      "--settings"])
         for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT"):
             self.assertNotIn(k, env)
         self.assertEqual(env["SHOPFLOOR_CREW"], "demo")
@@ -56,11 +57,21 @@ class RunnerTest(unittest.TestCase):
 
     def test_sandbox_settings_json_is_pinned(self):
         argv, _ = runner.claude_invocation("demo", "p")
+        self.cfg = {**cfg(), "guard": {"secretFiles": ["~/keys/deploy.pem"], "offLimits": ["/srv/private"]},
+                    "tracker": {"tokenFile": "/s/linear"}}
+        argv, _ = runner.claude_invocation("demo", "p")
+        home = os.path.expanduser("~")
+        deny = [p.replace("~", home, 1) for p in config.DEFAULT_SECRET_FILES] + \
+            [home + "/keys/deploy.pem", "/srv/private", os.path.join(self.home, "secrets"), "/s/linear"]
         want = {"sandbox": {"enabled": True, "failIfUnavailable": True, "allowUnsandboxedCommands": False,
+                            "excludedCommands": ["sf *"],
                             "filesystem": {"allowWrite": [str(paths.worktrees_dir("demo")),
                                                           str(paths.crew_state_dir("demo") / "tickets"),
-                                                          tempfile.gettempdir()]}}}
+                                                          tempfile.gettempdir()],
+                                           "denyRead": deny}}}
         self.assertEqual(json.loads(argv[-1]), want)
+        for p in ("~/.ssh", "~/.config/gh", "~/.claude.json"):
+            self.assertIn(os.path.expanduser(p), deny)
 
     def test_build_passes_slash_command_to_claude(self):
         with mock.patch.dict(os.environ, {"FAKE_CLAUDE_SLEEP": "0"}):

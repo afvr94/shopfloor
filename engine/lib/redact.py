@@ -7,7 +7,7 @@ TOKEN_KIND = "a secret or token"
 _TOKEN = re.compile(
     r"\b(?:sk|pk|rk)_(?:live|test)_\w+"
     r"|\blin_api_\w+"
-    r"|\bghp_\w+"
+    r"|\bgh[opusr]_\w+"
     r"|\bgithub_pat_\w+"
     r"|\bsk-ant-[\w-]+"
     r"|\bAKIA[0-9A-Z]{16}"
