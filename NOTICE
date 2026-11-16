@@ -8,7 +8,9 @@ This product bundles third-party assets. Each keeps its own license.
 Mermaid 11.4.1 - MIT License
   Bundles DOMPurify (Apache-2.0 or MPL-2.0) and KaTeX (MIT).
 Nunito - SIL Open Font License 1.1
+  Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito)
 Pixelify Sans - SIL Open Font License 1.1
+  Copyright 2021 The Pixelify Sans Project Authors (https://github.com/eifetx/Pixelify-Sans)
 
 Copyright for the bundled assets belongs to their respective authors: the Mermaid
 contributors, the DOMPurify and KaTeX authors, and the authors of the Nunito and

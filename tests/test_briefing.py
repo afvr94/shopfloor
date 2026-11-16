@@ -123,8 +123,11 @@ class Renderer(unittest.TestCase):
         d = good()
         d["diagram"] = "flowchart TD\nA-->B<script>"
         out = briefing_page.render_briefing(d, "c", "K-1")
-        self.assertIn('securityLevel: "strict"', out)
-        self.assertIn("startOnLoad: true", out)
+        self.assertIn("/static/mermaid-init.js", out)
+        self.assertNotIn("<script>", out)
+        init = (Path(briefing_page.__file__).parent / "static" / "mermaid-init.js").read_text()
+        self.assertIn('securityLevel: "strict"', init)
+        self.assertIn("startOnLoad: true", init)
         self.assertIn("/static/mermaid.min.js", out)
         self.assertIn('<pre class="mermaid">flowchart TD\nA--&gt;B&lt;script&gt;</pre>', out)
         self.assertNotIn("mermaid.min.js", briefing_page.render_briefing(good(), "c", "K-1"))

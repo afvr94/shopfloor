@@ -96,6 +96,15 @@ class ServerTest(BoardCase):
                   "/briefing/demo/ENG-1%0A"):
             self.assertEqual(self.req("GET", p)[0], 404, p)
 
+    def test_csp_on_html_only(self):
+        for path, csp in (("/", True), ("/api/state", False)):
+            c = http.client.HTTPConnection("127.0.0.1", self.port)
+            c.request("GET", path, headers={"Host": f"127.0.0.1:{self.port}"})
+            r = c.getresponse()
+            r.read()
+            c.close()
+            self.assertEqual("script-src 'self'" in (r.getheader("Content-Security-Policy") or ""), csp, path)
+
     def test_static_whitelist(self):
         with tempfile.TemporaryDirectory() as t:
             static = Path(t) / "static"

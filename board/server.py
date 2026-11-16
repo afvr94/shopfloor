@@ -15,6 +15,7 @@ from engine.lib import config, paths
 from engine.lib.commands import CommandQueue
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+CSP = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'"
 MAX_BODY = 16 * 1024
 MAX_TEXT = 4000
 TYPES = {"html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8", "css": "text/css; charset=utf-8",
@@ -47,6 +48,8 @@ def make_handler(host: str, files: dict[str, Path]):
             self.send_header("Content-Type", ctype)
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            if ctype.startswith("text/html"):
+                self.send_header("Content-Security-Policy", CSP)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

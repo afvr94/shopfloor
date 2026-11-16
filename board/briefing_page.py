@@ -42,8 +42,7 @@ section.risk{border-color:var(--risk)}p{margin:0}ul,ol{margin:0;padding-left:20p
 pre.mermaid{background:transparent;margin:0;overflow-x:auto;text-align:center}
 """
 
-_MERMAID = ('<script src="/static/mermaid.min.js"></script>'
-            '<script>mermaid.initialize({ startOnLoad: true, securityLevel: "strict" });</script>')
+_MERMAID = '<script src="/static/mermaid.min.js"></script><script src="/static/mermaid-init.js"></script>'
 
 
 def render_briefing(data: dict, crew_id: str, key: str) -> str:

@@ -1,7 +1,8 @@
-The Nunito and Pixelify Sans font families bundled here are licensed under the
-SIL Open Font License, Version 1.1. The font files carry no copyright
-metadata; the copyright belongs to each family's authors (see the upstream
-font projects).
+Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito)
+Copyright 2021 The Pixelify Sans Project Authors (https://github.com/eifetx/Pixelify-Sans)
+
+The families bundled here (Nunito and Pixelify Sans) are licensed under the
+SIL Open Font License, Version 1.1.
 
 -----------------------------------------------------------
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
