@@ -106,7 +106,10 @@ def _repo_rows(cid: str, cfg: dict, deps: dict) -> list[Row]:
                     out = deps["run"](["gh", "api", f"repos/{r['github']}/branches/{quote(branch, safe='')}"])
                 except proc.ProcError as e:
                     return None if "Branch not found" in str(e) else str(e)  # absent on the remote: nothing to protect
-                if not json.loads(out).get("protected"):
+                info = json.loads(out)
+                if info.get("name") != branch:  # GitHub answers a missing master with the default branch
+                    return None
+                if not info.get("protected"):
                     return (f"{r['github']}:{branch} is not protected. Settings → Branches → add a rule for "
                             f"{branch}, or turn on a ruleset")
             rows.append(_guarded(f"{cid}: branch protection {branch} ({name})", protected))

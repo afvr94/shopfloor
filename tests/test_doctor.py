@@ -84,7 +84,7 @@ class Doctor(unittest.TestCase):
         state.relock_all("demo")
         self.protected = True
         self.missing = set()
-        self.invisible = self.api_error = False
+        self.invisible = self.api_error = self.redirect = False
 
     def deps(self, label=True):
         def run(argv, **kw):
@@ -98,8 +98,10 @@ class Doctor(unittest.TestCase):
                 if self.api_error:
                     raise ProcError(argv, 1, "gh: Bad credentials (HTTP 401)")
                 if "/branches/main" not in argv[2]:
+                    if self.redirect:
+                        return json.dumps({"name": "main", "protected": False})
                     raise ProcError(argv, 1, "gh: Branch not found (HTTP 404)")
-                return json.dumps({"protected": self.protected})
+                return json.dumps({"name": "main", "protected": self.protected})
             return real_run(argv, **kw)
         return {
             "which": lambda n: None if n in self.missing else "/usr/bin/" + n,
@@ -252,6 +254,14 @@ class Doctor(unittest.TestCase):
         self.assertIn("Settings", row[2])
 
     def test_branch_missing_on_remote_is_skipped(self):
+        cfg_path = paths.crew_config_path("demo")
+        cfg = json.loads(cfg_path.read_text())
+        cfg["protectedBranches"] = ["main", "master"]
+        cfg_path.write_text(json.dumps(cfg))
+        self.assertEqual(self.failing(self.rows()), [])
+
+    def test_missing_master_answered_with_default_branch_is_skipped(self):
+        self.redirect = True
         cfg_path = paths.crew_config_path("demo")
         cfg = json.loads(cfg_path.read_text())
         cfg["protectedBranches"] = ["main", "master"]

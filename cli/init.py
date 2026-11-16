@@ -24,6 +24,11 @@ def read_secret(secret, prompt: str) -> str:
     raise ValueError(f"no value given for: {prompt.strip(' :')}")
 
 
+def replace_secret(crew_id: str, which: str, secret=getpass.getpass) -> None:
+    cfg = config.load_crew(crew_id)[which]
+    write_secret(Path(cfg["tokenFile"]), read_secret(secret, f"New {cfg['type']} token (hidden): "))
+
+
 def ensure_dirs(crew_id: str) -> None:
     for d in ("worktrees", "tickets"):
         state.make_dir(paths.crew_state_dir(crew_id) / d)

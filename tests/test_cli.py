@@ -211,6 +211,14 @@ class Init(Base):
         self.assertEqual(self.wizard(again)[0], 1)
         again.install_crew.assert_not_called()
 
+    def test_secret_replaces_a_token_and_keeps_it_locked(self):
+        self.assertEqual(self.wizard(self.installer())[0], 0)
+        init.replace_secret("demo", "tracker", secret=mock.Mock(return_value=" lin_" + "NEW\n"))
+        f = Path(config.load_crew("demo")["tracker"]["tokenFile"])
+        self.assertEqual(f.read_text().strip(), "lin_NEW")
+        self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o400)
+        self.assertEqual(stat.S_IMODE(f.parent.stat().st_mode), 0o500)
+
     def test_init_aborts_after_three_empty_secrets(self):
         out = []
         secret = mock.Mock(return_value="  ")

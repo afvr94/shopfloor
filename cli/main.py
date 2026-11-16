@@ -99,6 +99,9 @@ def _parser() -> argparse.ArgumentParser:
     sub.choices["doctor"].add_argument("--live", action="store_true",
                                        help="also run one real sandboxed claude session (uses your Claude plan)")
     sub.add_parser("run").add_argument("crew")
+    sec = sub.add_parser("secret", help="replace a crew's Linear or Slack token")
+    sec.add_argument("crew")
+    sec.add_argument("which", choices=("tracker", "chat"))
     for name in ("init", "uninstall", "board"):
         sub.add_parser(name)
     return p
@@ -123,6 +126,10 @@ def main(argv: list[str]) -> int:
         if args.cmd == "uninstall":
             for p in install.uninstall():
                 print(f"removed {p}")
+            return 0
+        if args.cmd == "secret":
+            init.replace_secret(args.crew, args.which)
+            print(f"replaced the {args.which} token for {args.crew}")
             return 0
         if args.cmd == "run":
             return run_tick(args.crew)
