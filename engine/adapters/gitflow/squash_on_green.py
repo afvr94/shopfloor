@@ -8,6 +8,8 @@ class SquashOnGreen(GitFlow):
     def can_merge(self, repo_name: str, pr: dict) -> tuple[bool, str]:
         if pr.get("isDraft"):
             return False, "draft"
+        if pr.get("reviewDecision") == "CHANGES_REQUESTED":
+            return False, "a reviewer asked for changes"
         if pr.get("mergeable") != "MERGEABLE":
             return False, f"not mergeable ({pr.get('mergeable')})"
         if not base.checks_green(pr.get("statusCheckRollup") or []):

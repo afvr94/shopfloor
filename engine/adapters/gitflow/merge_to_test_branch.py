@@ -15,6 +15,8 @@ class MergeToTestBranch(GitFlow):
             return False, "no testBranch configured"
         if pr.get("isDraft"):
             return False, "draft"
+        if pr.get("reviewDecision") == "CHANGES_REQUESTED":
+            return False, "a reviewer asked for changes"
         if not base.checks_green(pr.get("statusCheckRollup") or []):
             return False, "checks not green"
         hit = base.denied_path(pr, self.flow["mergeDenyPaths"])

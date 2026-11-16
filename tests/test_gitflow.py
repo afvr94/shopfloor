@@ -197,6 +197,9 @@ class TestSquash(GitFlowCase):
         self.assertFalse(self.pf.can_merge("app", {**PR, "isDraft": True})[0])
         self.assertFalse(self.pf.can_merge("app", {**PR, "mergeable": "CONFLICTING"})[0])
         self.assertFalse(self.pf.can_merge("app", {**PR, "statusCheckRollup": []})[0])
+        self.assertEqual(self.pf.can_merge("app", {**PR, "reviewDecision": "CHANGES_REQUESTED"}),
+                         (False, "a reviewer asked for changes"))
+        self.assertEqual(self.pf.can_merge("app", {**PR, "reviewDecision": "APPROVED"}), (True, "ok"))
         self.assertEqual(self.pf.can_merge("app", {**PR, "files": [{"path": "infra/deploy.yml"}]}),
                          (False, "touches infra/deploy.yml"))
         self.assertEqual(self.pf.can_merge("app", {**PR, "files": ["infra/deploy.yml"]})[1], "touches infra/deploy.yml")
@@ -234,6 +237,7 @@ class TestMergeToTest(GitFlowCase):
         self.assertEqual(flow.can_merge("app", PR), (True, "ok"))
         for over, why in [
             ({"isDraft": True}, "draft"),
+            ({"reviewDecision": "CHANGES_REQUESTED"}, "a reviewer asked for changes"),
             ({"files": [{"path": "infra/a.yml"}]}, "touches infra/a.yml"),
             ({"statusCheckRollup": [{"conclusion": "FAILURE"}]}, "checks not green"),
             ({"statusCheckRollup": [{"status": "IN_PROGRESS", "conclusion": ""}]}, "checks not green"),

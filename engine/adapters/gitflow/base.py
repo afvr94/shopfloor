@@ -32,7 +32,7 @@ def checks_green(rollup: list[dict]) -> bool:
 
 
 def pr_info(repo_github: str, number) -> dict:
-    fields = "number,url,headRefName,headRefOid,isDraft,mergeable,statusCheckRollup,files"
+    fields = "number,url,headRefName,headRefOid,isDraft,mergeable,reviewDecision,statusCheckRollup,files"
     return json.loads(GH(["pr", "view", str(number), "-R", repo_github, "--json", fields]))
 
 
