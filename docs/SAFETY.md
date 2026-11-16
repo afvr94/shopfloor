@@ -14,14 +14,14 @@ New crews start with `"dryRun": true`, enforced inside the `sf` command that cre
 - `squash-on-green`: the crew squash-merges only when all checks are green, the pull request is mergeable and not a draft, and it touches no path matching `gitFlow.mergeDenyPaths`. The merge is pinned to the head commit it checked, so a later push cannot slip in.
 - `merge-to-test-branch`: when checks are green, the pull request is not a draft and it touches no denied path, the crew merges it with `--no-ff` into `gitFlow.testBranch`, from its own worktree, and leaves the pull request open. The test branch must not be protected or a repo base branch.
 
-Merges never happen while the crew is paused. A crew also refuses to push a protected branch or a repo base branch.
+`sf merge` refuses to merge while the crew is paused. A crew also refuses to push a protected branch or a repo base branch.
 
 ## 3. The guard
 
 Every tool call in a crew session passes through a `PreToolUse` hook before it runs. It:
 
 - allows only commands on a default-deny list; anything it cannot parse or recognise is blocked
-- allows pushes only to `shopfloor/*` branches, blocks rebase and reset on protected branches, and otherwise runs local git only in the crew's worktrees
+- allows pushes only to `shopfloor/*` branches, blocks rebase and `reset --hard` on protected branches, and otherwise runs local git only in the crew's worktrees
 - blocks `gh pr create`, `gh pr merge` and any non-GET `gh api` (these go through `sf ship` and `sf merge`), and blocks direct calls to the Linear and Slack APIs; `gh pr comment` and `gh pr review --comment` are allowed outside dry run (blocked in dry run); read-only `gh` commands are allowed
 - blocks reads of secrets, `.env` files and anything in `guard.secretFiles` or `guard.offLimits`
 - allows writes only inside the crew's worktrees and tickets folders (and the system temp directory)
