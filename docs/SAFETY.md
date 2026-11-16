@@ -21,8 +21,8 @@ Merges never happen while the crew is paused. A crew also refuses to push a prot
 Every tool call in a crew session passes through a `PreToolUse` hook before it runs. It:
 
 - allows only commands on a default-deny list; anything it cannot parse or recognise is blocked
-- allows git only on the crew's own `shopfloor/*` branches, and never a push to a protected branch
-- blocks direct pull request, merge and tracker or chat writes (`gh pr`, calls to the Linear and Slack APIs); these go through `sf`
+- allows pushes only to `shopfloor/*` branches, blocks rebase and reset on protected branches, and otherwise runs local git only in the crew's worktrees
+- blocks `gh pr create`, `gh pr merge` and any non-GET `gh api` (these go through `sf ship` and `sf merge`), and blocks direct calls to the Linear and Slack APIs; `gh pr comment` and `gh pr review --comment` are allowed outside dry run (blocked in dry run); read-only `gh` commands are allowed
 - blocks reads of secrets, `.env` files and anything in `guard.secretFiles` or `guard.offLimits`
 - allows writes only inside the crew's worktrees and tickets folders (and the system temp directory)
 - blocks MCP tools, inline interpreter code (`python -c`, `node -e` and similar) and anything that opens an editor
@@ -47,7 +47,7 @@ Linear comments are signed with the crew's voice name so they are distinguishabl
 
 ## 7. Pausing and approval
 
-A paused crew merges nothing and starts no builds. Only your commands in the Slack thread can change that. The instructions a crew follows resume only when an owner `resume` command is pending. Crews cannot write the command queue, so they cannot approve their own work or issue themselves commands. Note that `sf resume` is an ordinary command, so this rule is part of the crew's instructions and not a technical lock; layers 1 to 5 are what hold if a crew ignores it.
+While a crew is paused, `sf merge` refuses to merge; that is the only pause rule enforced in code. Not starting builds or claiming new tickets while paused is part of the crew's instructions, like resume. Only your commands in the Slack thread are meant to change it. The instructions a crew follows resume only when an owner `resume` command is pending. Crews cannot write the command queue, so they cannot approve their own work or issue themselves commands. Note that `sf resume` is an ordinary command, so this rule is part of the crew's instructions and not a technical lock; layers 1 to 5 are what hold if a crew ignores it.
 
 ## 8. The board
 

@@ -11,7 +11,7 @@ Paths beginning with `~` are expanded.
 | `id` | string | required | Crew id; lowercase letters, digits and `-`, up to 31 characters. Must match the file name. |
 | `name` | string | the id | Display name on the board. |
 | `dryRun` | boolean | `true` | When true, no push, pull request, tracker write or merge happens. See [SAFETY.md](SAFETY.md). |
-| `paused` | boolean | `false` | When true, the crew merges nothing and starts no builds. It still plans claimed tickets and tends open pull requests. `pause` and `resume` owner commands toggle it. |
+| `paused` | boolean | `false` | When true, `sf merge` refuses to merge (enforced in code). Not starting builds or claiming new tickets is crew-instruction policy, not a technical lock. The crew still plans claimed tickets and tends open pull requests. `pause` and `resume` owner commands toggle it. |
 | `autoRecommend` | string | `"questions"` | `"questions"` lets the crew proceed on its own recommendation for ordinary questions; `"never"` always waits for you. Deal breakers (such as schema changes or dependency changes) always wait. |
 | `protectedBranches` | string[] | `["main", "master"]` | Branches no crew may push to or merge into directly. Each needs GitHub branch protection. Repo base branches are protected too. |
 | `policyPacks` | string[] | `[]` | Paths to Markdown files of house rules the crew reads at the start of every run. See [policy-pack.example.md](../examples/policy-pack.example.md). |
