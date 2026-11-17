@@ -4,6 +4,14 @@ All notable changes to Shopfloor are listed here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-17
+
+### Fixed
+
+- A ticket first built in dry run and then retried now moves from todo through in progress to review, instead of failing the move to review.
+- Config validation rejects a Slack channel ID pasted as `chat.slack.ownerUserId`; the crew ignored the owner's thread replies.
+- A GitHub crew's pull request description ends with `Closes <owner>/<repo>#<n>`, so the issue closes when the pull request merges.
+
 ## [0.2.0] - 2026-11-16
 
 ### Added
@@ -35,6 +43,7 @@ The first public release.
 - `shopfloor init`, `doctor` (with `--live` and `--repair-tamper`), `secret`, `install`, `uninstall`, `run`, `status` and `board`.
 - Schedules through launchd on macOS and systemd on Linux.
 
-[Unreleased]: https://github.com/afvr94/shopfloor/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/afvr94/shopfloor/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/afvr94/shopfloor/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/afvr94/shopfloor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/afvr94/shopfloor/releases/tag/v0.1.0
