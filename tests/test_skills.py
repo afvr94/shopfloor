@@ -93,6 +93,12 @@ class Skills(unittest.TestCase):
         for need in ("sf commands ack <seq>` once", "`eligible`", "sf runs show <KEY>", "empty `prs`"):
             self.assertIn(need, tick)
 
+    def test_pause_and_resume_are_acknowledged_in_the_thread(self):
+        # both are crew-wide and change nothing on the ticket, so the owner otherwise sees no reply
+        lines = {l.split("`")[1]: l for l in _texts()["tick"].splitlines() if l.lstrip().startswith(("- `pause`", "- `resume`"))}
+        for cmd in ("pause", "resume"):
+            self.assertIn("sf chat post <KEY>", lines[cmd], cmd)
+
     def test_build_writes_a_briefing_draft_for_sf(self):
         build = _texts()["build"]
         self.assertIn("sf briefing write <KEY> <dir>/briefing-draft.json", build)

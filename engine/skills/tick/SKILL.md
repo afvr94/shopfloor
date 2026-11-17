@@ -11,8 +11,8 @@ Unattended and repeatable: every step must be safe to run twice. Load `/shopfloo
 
 ## 1. Commands
 1. `sf commands pending` lists owner commands, oldest first, each with its ticket `key`. Apply them in order:
-   - `pause` runs `sf pause`.
-   - `resume` runs `sf resume`. Never resume on your own initiative, only when an owner `resume` command is pending.
+   - `pause` runs `sf pause`, then `sf chat post <KEY> --text-file <dir>/<file>` with one line in that ticket's thread: the crew is paused and starts nothing new until the owner sends `resume`. Post nothing if the crew was already paused.
+   - `resume` runs `sf resume`, then `sf chat post <KEY> --text-file <dir>/<file>` with one line in that ticket's thread: the crew is back at work. Post nothing if the crew wasn't paused. Never resume on your own initiative, only when an owner `resume` command is pending.
    - `lesson` runs `sf lessons add`; `forget` runs `sf lessons forget`.
    - `answer`: see step 1.2.
    - `approve`: an answer that approves the ticket's current plan or spec. Save and route it as in step 1.2 with the answer text "Approved: go ahead with the current plan or spec."
