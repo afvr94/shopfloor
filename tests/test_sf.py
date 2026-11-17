@@ -456,6 +456,14 @@ class SfPrTest(SfCase):
         self.sf("ship", "ENG-1", "app", "--title", "t", "--body-file", str(f))
         self.assertEqual(self.flow.body, "body [redacted]")
 
+    def test_ship_closes_the_github_issue(self):
+        # the crew never closes issues itself; GitHub closes this one when the PR merges
+        self.write_cfg(dryRun=False, tracker={"type": "github", "github": {"repo": "o/issues"}, "mayMove": []})
+        f = state.make_dir(paths.ticket_dir("demo", "GH-6")) / "pr-body.md"
+        f.write_text("body")
+        self.sf("ship", "GH-6", "app", "--title", "t", "--body-file", str(f))
+        self.assertEqual(self.flow.body, "body\n\nCloses o/issues#6")
+
     def test_crew_files_must_be_real_files_in_the_write_roots(self):
         ok = self.dir / "c.md"
         ok.write_text("hi")
