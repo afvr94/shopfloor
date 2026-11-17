@@ -12,7 +12,11 @@ A crew can talk to you in the comments of the ticket's GitHub issue instead of a
 
 ## 2. Who posts
 
-The crew posts with your `gh` login, the same one it uses to read issues and open pull requests. Its comments show under your own name. Every comment Shopfloor writes ends with a hidden line, `<!-- shopfloor -->`. That line is how it tells its comments from yours.
+The crew posts with your `gh` login, the same one it uses to read issues and open pull requests. Its comments show under your own name, signed with the crew's voice name. Every comment Shopfloor writes ends with a hidden line, `<!-- shopfloor -->`. That line is how it tells its comments from yours.
+
+Dry run doesn't hold chat back. A crew in dry run still posts its plan and questions as comments on the issue. On a public repo, anyone can read them.
+
+`sf` posts only to the ticket's own issue in the configured repo. A thread recorded for another repo, such as a Slack thread left over from before you switched chat, is refused; cancel the ticket or start it over.
 
 ## 3. Who is heard
 

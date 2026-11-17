@@ -67,7 +67,7 @@ Reply in the thread to answer, or send a command:
 
 Crews run unattended with your credentials, so the defaults are strict. [docs/SAFETY.md](docs/SAFETY.md) has the full model; the short version:
 
-- **Dry run first.** A new crew plans, builds and chats, but pushes nothing, opens nothing and writes nothing to Linear until you turn dry run off yourself.
+- **Dry run first.** A new crew plans, builds and chats, but pushes nothing, opens nothing and writes nothing to the tracker until you turn dry run off yourself. Chat isn't held back: with GitHub chat, the crew still posts its plan and questions as comments on the issue, which on a public repo is public.
 - **Sandboxed sessions.** Crews run inside Claude Code's sandbox with none of your own Claude settings, hooks or plugins. They can't read your SSH keys, cloud credentials or tokens, and can't reach services on your machine, the board included.
 - **One door to the outside.** Crews never run `gh` or push. A small trusted command, `sf`, runs outside the sandbox, takes the crew's work as a git bundle and pushes only that ticket's own `shopfloor/` branch. Protected branches stay off-limits in every flow.
 - **Tamper-evident records.** `sf` keeps its own state signed, in folders crews can't write, and flags any change it didn't make.
@@ -114,7 +114,7 @@ You need macOS or Linux, Python 3.10+, `git`, [`gh`](https://cli.github.com) log
 | `shopfloor doctor [crew]` | Check tools, sandbox support, secrets, Linear, Slack or GitHub chat, repos and branch protection. |
 | `shopfloor doctor --live [crew]` | Also start one real sandboxed crew session in a temp folder (uses your Claude plan). |
 | `shopfloor doctor --repair-tamper <crew>` | Clear a crew's tamper markers once you have checked the records they name (see [SAFETY.md](docs/SAFETY.md) section 4). |
-| `shopfloor secret <crew> tracker\|chat` | Replace a crew's Linear or Slack token (not GitHub chat, which has none) (asks for it hidden). |
+| `shopfloor secret <crew> tracker\|chat` | Replace a crew's Linear or Slack token (asks for it hidden). GitHub crews have none. |
 | `shopfloor install [crew]` | Install the board service and each crew's schedule. |
 | `shopfloor uninstall` | Remove the installed services. |
 | `shopfloor run <crew>` | Run one round now. |
