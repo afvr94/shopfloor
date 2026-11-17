@@ -10,7 +10,7 @@ Shopfloor has no dependencies: Python 3.10+ and `git` are enough. Always run the
 HOME=$(mktemp -d) SHOPFLOOR_HOME=$(mktemp -d)/sf python3 -m unittest
 ```
 
-The suite takes under a minute. CI runs it on Ubuntu and macOS with Python 3.10 and 3.13, and all four jobs must pass before a pull request can merge. CI sets `HOME` outside the temp dir on purpose: the temp dir is a crew write root, and the guard tests check that writes to `~` are blocked.
+The suite takes under a minute. CI runs it on Ubuntu with Python 3.10 and 3.13, and both jobs must pass before a pull request can merge. CI sets `HOME` outside the temp dir on purpose: the temp dir is a crew write root, and the guard tests check that writes to `~` are blocked.
 
 ## Pull requests
 
