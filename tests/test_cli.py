@@ -219,13 +219,14 @@ class Init(Base):
         with mock.patch.object(init.doctor, "check_all", return_value=[(True, "x", "")]):
             code = init.run_wizard(ask=lambda p: next((v for k, v in answers.items() if k in p.lower()), ""),
                                    out=out.append, secret=secret, installer=self.installer(),
-                                   make_label=lambda repo, name: made.append((repo, name)))
+                                   make_label=lambda repo, name, color: made.append((repo, name, color)))
         self.assertEqual(code, 0)
         self.assertEqual(secret.call_count, 1)
         raw = json.loads(paths.crew_config_path("demo").read_text())
         self.assertEqual(raw["tracker"], {"type": "github", "github": {"repo": "acme/app", "label": "shopfloor"},
                                           "mayMove": ["todo->inProgress", "inProgress->review"]})
-        self.assertEqual(made, [("acme/app", n) for n in ("shopfloor", "shopfloor:in-progress", "shopfloor:review")])
+        self.assertEqual(made, [("acme/app", "shopfloor", "0e8a16"), ("acme/app", "shopfloor:in-progress", "fbca04"),
+                                ("acme/app", "shopfloor:review", "1d76db")])
         self.assertIn("docs/setup-github-issues.md", "\n".join(out))
         self.assertFalse((paths.shopfloor_home() / "secrets" / "demo-linear").exists())
 
@@ -236,7 +237,7 @@ class Init(Base):
                 shutil.rmtree(paths.shopfloor_home(), ignore_errors=True)
                 out = []
 
-                def fail(repo, name, exc=exc):
+                def fail(repo, name, color, exc=exc):
                     raise exc
                 with mock.patch.object(init.doctor, "check_all", return_value=[(True, "x", "")]):
                     code = init.run_wizard(ask=lambda p: next((v for k, v in answers.items() if k in p.lower()), ""),
@@ -244,13 +245,14 @@ class Init(Base):
                                            installer=self.installer(), make_label=fail)
                 self.assertEqual(code, 0)
                 text = "\n".join(out)
-                for n in ("shopfloor", "shopfloor:in-progress", "shopfloor:review"):
-                    self.assertIn(f"gh label create {n} --repo acme/app --force", text)
+                for n, c in (("shopfloor", "0e8a16"), ("shopfloor:in-progress", "fbca04"), ("shopfloor:review", "1d76db")):
+                    self.assertIn(f"run: gh label create --color {c} --force --repo acme/app -- {n}\n", text + "\n")
 
     def test_default_label_creator_forces_so_reruns_are_safe(self):
         with mock.patch.object(init.proc, "run") as run:
-            init.create_label("acme/app", "shopfloor")
-        run.assert_called_once_with(["gh", "label", "create", "shopfloor", "--repo", "acme/app", "--force"])
+            init.create_label("acme/app", "-x", "0e8a16")
+        run.assert_called_once_with(["gh", "label", "create", "--color", "0e8a16", "--force", "--repo", "acme/app",
+                                     "--", "-x"])
 
     def test_secret_refuses_a_github_tracker(self):
         raw = json.loads(json.dumps(CREW))

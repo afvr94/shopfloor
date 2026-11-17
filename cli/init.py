@@ -3,6 +3,7 @@ from __future__ import annotations
 import getpass
 import json
 import os
+import shlex
 from pathlib import Path
 
 from cli import doctor, install
@@ -32,8 +33,12 @@ def replace_secret(crew_id: str, which: str, secret=getpass.getpass) -> None:
     write_secret(Path(cfg["tokenFile"]), read_secret(secret, f"New {cfg['type']} token (hidden): "))
 
 
-def create_label(repo: str, name: str) -> None:
-    proc.run(["gh", "label", "create", name, "--repo", repo, "--force"])
+def label_argv(repo: str, name: str, color: str) -> list[str]:
+    return ["gh", "label", "create", "--color", color, "--force", "--repo", repo, "--", name]
+
+
+def create_label(repo: str, name: str, color: str) -> None:
+    proc.run(label_argv(repo, name, color))
 
 
 def ensure_dirs(crew_id: str) -> None:
@@ -107,11 +112,12 @@ def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, 
     out(f"Wrote {crew_file}")
     if ttype == "github" and make_labels:
         gh = settings(config.load_crew(cid))
-        for name in (gh["label"], *gh["states"].values()):
+        for name, color in ((gh["label"], "0e8a16"), (gh["states"]["inProgress"], "fbca04"),
+                            (gh["states"]["review"], "1d76db")):
             try:
-                make_label(gh["repo"], name)
+                make_label(gh["repo"], name, color)
             except (proc.ProcError, OSError) as e:
-                out(f"Could not create label {name}: {e}\n  run: gh label create {name} --repo {gh['repo']} --force")
+                out(f"Could not create label {name}: {e}\n  run: {shlex.join(label_argv(gh['repo'], name, color))}")
 
     if doctor.report(doctor.check_all(cid, deps, during_init=True), out):
         out("Fix the failures above, then run: shopfloor install")
