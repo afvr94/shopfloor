@@ -115,11 +115,12 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(self.results(), ["build timed out"])
 
     def test_runs_up_to_max_parallel_at_once(self):
-        with mock.patch.dict(os.environ, {"FAKE_CLAUDE_SLEEP": "0.5"}):
+        # two waves of 1s; serial would take 3s, so the upper bound leaves slow CI runners room
+        with mock.patch.dict(os.environ, {"FAKE_CLAUDE_SLEEP": "1"}):
             t = time.monotonic()
             runner.run_builds("demo", ["ENG-1", "ENG-2", "ENG-3"])
             wall = time.monotonic() - t
-        self.assertTrue(0.9 <= wall <= 1.4, wall)
+        self.assertTrue(1.9 <= wall <= 2.8, wall)
         self.assertEqual(self.results(), ["build finished"] * 3)
         self.assertEqual(len(list(paths.logs_dir().glob("build-demo-ENG-*-*.log"))), 3)
 
