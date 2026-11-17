@@ -62,8 +62,8 @@ class GitHubTracker:
                   if "pull_request" not in i and not skip & {n.lower() for n in _names(i)}]
         who = self.gh.get("assignee")
         if who:
-            who = self.viewer() if who == "me" else who
-            issues = [i for i in issues if any(a["login"] == who for a in i.get("assignees") or [])]
+            who = (self.viewer() if who == "me" else who).lower()
+            issues = [i for i in issues if any(a["login"].lower() == who for a in i.get("assignees") or [])]
         return sorted(map(self._ticket, issues), key=lambda t: t.created_at)
 
     def get(self, key: str) -> Ticket:

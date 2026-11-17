@@ -85,6 +85,13 @@ class GitHubTrackerTests(unittest.TestCase):
         t, _ = tracker([lines(issue(1, assignees=["bob"]), issue(2, assignees=["ana"]))], cfg_with(assignee="bob"))
         self.assertEqual([x.key for x in t.list_candidates()], ["GH-1"])
 
+    def test_candidates_assignee_ignores_case(self):
+        t, _ = tracker([lines(issue(1, assignees=["bob"]), issue(2, assignees=["ana"]))], cfg_with(assignee="Ana"))
+        self.assertEqual([x.key for x in t.list_candidates()], ["GH-2"])
+        t, _ = tracker([lines(issue(1, assignees=["bob"]), issue(2, assignees=["Ana"])), "ana\n"],
+                       cfg_with(assignee="me"))
+        self.assertEqual([x.key for x in t.list_candidates()], ["GH-2"])
+
     def test_get_maps_ticket(self):
         t, fake = tracker([json.dumps(issue(42, ["shopfloor", "x"], assignees=["ana", "bob"]))])
         tk = t.get("gh-42")
