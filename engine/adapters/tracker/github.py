@@ -112,6 +112,8 @@ class GitHubTracker:
         found = json.loads(self._gh("api", f"repos/{self.repo}/issues/comments/{comment_id}"))
         if not str(found.get("issue_url", "")).endswith(f"/issues/{self._number(key)}"):
             raise TrackerError(f"comment {comment_id} is not on {key}")
+        if not str(found.get("body") or "").rstrip().endswith(MARKER):
+            raise TrackerError(f"comment {comment_id} is not one of Shopfloor's")
         self._gh("api", "-X", "PATCH", f"repos/{self.repo}/issues/comments/{comment_id}", "--input", "-",
                  input=json.dumps({"body": body + "\n\n" + MARKER}))
 

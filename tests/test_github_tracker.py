@@ -172,7 +172,8 @@ class GitHubTrackerTests(unittest.TestCase):
         self.assertFalse(any("kept off argv" in a for a in argv))
 
     def test_update_comment(self):
-        t, fake = tracker([json.dumps({"issue_url": "https://api.github.com/repos/acme/app/issues/7"}), ""])
+        t, fake = tracker([json.dumps({"issue_url": "https://api.github.com/repos/acme/app/issues/7",
+                                       "body": "old\n\n" + MARKER + "\n"}), ""])
         t.update_comment("GH-7", "55", "x")
         self.assertEqual(fake.calls, [
             (["gh", "api", "repos/acme/app/issues/comments/55"], None),
@@ -180,7 +181,8 @@ class GitHubTrackerTests(unittest.TestCase):
              json.dumps({"body": "x\n\n" + MARKER}))])
 
     def test_comment_and_update_carry_marker(self):
-        t, fake = tracker(["1\n", json.dumps({"issue_url": "https://api.github.com/repos/acme/app/issues/7"}), ""])
+        t, fake = tracker(["1\n", json.dumps({"issue_url": "https://api.github.com/repos/acme/app/issues/7",
+                                              "body": "old\n\n" + MARKER}), ""])
         t.comment("GH-7", "a")
         t.update_comment("GH-7", "55", "b")
         self.assertTrue(fake.calls[0][1].endswith('\\n\\n' + MARKER + '"}'))
@@ -199,6 +201,15 @@ class GitHubTrackerTests(unittest.TestCase):
             with self.subTest(url=url):
                 t, fake = tracker([json.dumps({"issue_url": url})])
                 with self.assertRaisesRegex(TrackerError, "GH-7"):
+                    t.update_comment("GH-7", "55", "x")
+                self.assertEqual(writes(fake), [])
+
+    def test_update_comment_refuses_the_owners_own_comment(self):
+        url = "https://api.github.com/repos/acme/app/issues/7"
+        for body in ("my words", "quoting " + MARKER + " mid-text", None):
+            with self.subTest(body=body):
+                t, fake = tracker([json.dumps({"issue_url": url, "body": body})])
+                with self.assertRaisesRegex(TrackerError, "not one of Shopfloor's"):
                     t.update_comment("GH-7", "55", "x")
                 self.assertEqual(writes(fake), [])
 
