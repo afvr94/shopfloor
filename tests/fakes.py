@@ -15,6 +15,22 @@ class FakeLinear:
         return self.answers.pop(0)
 
 
+class FakeGh:
+    """Records (argv, input); answers from a list (popped in order) or a function(argv, input).
+    A ProcError answer is raised instead of returned."""
+
+    def __init__(self, answers):
+        self.answers = answers
+        self.calls: list[tuple[list[str], str | None]] = []
+
+    def __call__(self, argv, input=None):
+        self.calls.append((argv, input))
+        ans = self.answers(argv, input) if callable(self.answers) else self.answers.pop(0)
+        if isinstance(ans, Exception):
+            raise ans
+        return ans
+
+
 class FakeSlack:
     """Records (method, params); answers from a list (popped in order) or a function(method, params)."""
 
