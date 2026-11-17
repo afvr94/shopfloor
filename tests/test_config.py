@@ -150,6 +150,14 @@ class ConfigTest(Base):
     def test_validate_rejects_unknown_maymove_state(self):
         self.assertIn("mayMove", self.errors(lambda c: c["tracker"]["mayMove"].append("todo->done")))
 
+    def test_validate_rejects_channel_id_as_owner(self):
+        # the wizard asks for the channel id right before the owner id, and both are opaque strings
+        self.assertIn("ownerUserId", self.errors(lambda c: c["chat"]["slack"].update(ownerUserId="C0123")))
+
+    def test_validate_accepts_member_ids(self):
+        for owner in ("U0123", "W0123ABC"):
+            self.assertEqual(self.errors(lambda c: c["chat"]["slack"].update(ownerUserId=owner)), "")
+
     def github_cfg(self):
         c = example()
         c["tracker"] = {"type": "github", "mayMove": ["todo->inProgress", "inProgress->review"],

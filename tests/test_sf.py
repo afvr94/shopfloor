@@ -92,6 +92,11 @@ class SfCase(unittest.TestCase):
         f.start()
         self.addCleanup(f.stop)
 
+    def tracker_cfg(self):
+        return {"type": "linear", "tokenFile": str(self.secret),
+                "linear": {"team": "ENG", "states": {"todo": "Todo", "inProgress": "In Progress", "review": "In Review"}},
+                "mayMove": ["todo->inProgress"]}
+
     def write_cfg(self, **over):
         cfg = {"id": "demo", "voice": {"name": "Demo", "style": "plain"},
                "tracker": {"type": "linear", "tokenFile": str(self.secret),
@@ -121,6 +126,18 @@ class SfTest(SfCase):
         self.assertTrue(out.startswith("dry-run: would move ENG-1 todo->inProgress"), out)
         self.assertEqual(self.tracker.calls, [])
         self.assertEqual(self.runs()[-1]["result"], "dry-run")
+
+    def test_review_from_todo_goes_through_in_progress(self):
+        # a ticket first built in dry run was never claimed, so a retry ships it straight from todo
+        self.write_cfg(dryRun=False, tracker={**self.tracker_cfg(), "mayMove": ["todo->inProgress", "inProgress->review"]})
+        code, _, _ = self.sf("tracker", "transition", "ENG-1", "review")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.tracker.calls, [("transition", "ENG-1", "inProgress"), ("transition", "ENG-1", "review")])
+
+    def test_allowed_move_is_made_directly(self):
+        self.write_cfg(dryRun=False)
+        self.sf("tracker", "transition", "ENG-1", "inProgress")
+        self.assertEqual(self.tracker.calls, [("transition", "ENG-1", "inProgress")])
 
     def test_dry_run_ship_and_merge(self):
         self.write_cfg(dryRun=True)

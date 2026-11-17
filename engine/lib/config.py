@@ -122,6 +122,9 @@ def validate(cfg: dict) -> list[str]:
                 errs.append("tracker.github.states labels must differ from the opt-in label and hold labels")
     if d("chat").get("type") != "slack":
         errs.append("chat.type must be 'slack'")
+    owner = (d("chat").get("slack") or {}).get("ownerUserId")
+    if owner is not None and not (isinstance(owner, str) and re.fullmatch(r"[UW][A-Z0-9]+", owner)):
+        errs.append("chat.slack.ownerUserId must be your Slack member ID, which starts with U (not the channel ID)")
     flow = d("gitFlow")
     if flow.get("type") not in ("pr-only", "squash-on-green", "merge-to-test-branch"):
         errs.append("gitFlow.type must be pr-only, squash-on-green or merge-to-test-branch")
