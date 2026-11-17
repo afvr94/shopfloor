@@ -51,7 +51,7 @@ To keep a labeled issue away from the crew, add a hold label (default `hold`, se
 
 A move adds the new label first, then removes the old one. `tracker.mayMove` lists the moves a crew may make, as `from->to` pairs of `todo`, `inProgress` and `review`. Any other move is refused.
 
-When the crew opens a pull request it comments `Pull request: <url>` on the issue, once.
+When the crew opens a pull request it comments `Pull request: <url>` on the issue, once. The pull request's description ends with `Closes <owner>/<repo>#<number>`, so GitHub closes the issue when the pull request merges into the default branch.
 
 ## 5. Whose issues
 

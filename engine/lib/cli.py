@@ -264,7 +264,11 @@ def h_ship(a, cfg):
     _repo(cfg, a.repo)
     if _dry(cfg, a.key, f"open a PR for {a.key} in {a.repo}"):
         return
-    url = _make("gitflow", cfg).ship(a.key, a.repo, a.title, redact(_crew_file(cfg, a.key, a.body_file)))
+    body = redact(_crew_file(cfg, a.key, a.body_file))
+    issue = re.fullmatch(r"(?i)GH-(\d+)", a.key) if cfg["tracker"]["type"] == "github" else None
+    if issue:  # the crew never closes issues itself; GitHub closes this one when the PR merges
+        body += f"\n\nCloses {trackerbase.settings(cfg)['repo']}#{issue.group(1)}"
+    url = _make("gitflow", cfg).ship(a.key, a.repo, a.title, body)
     m = re.search(r"/pull/(\d+)", url)
     if not m:
         raise Refused(f"could not read a PR number from {url}")
