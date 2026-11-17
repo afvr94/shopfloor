@@ -128,6 +128,12 @@ def h_transition(a, cfg):
         cur = tracker.get(a.key).state
         _dry(cfg, a.key, f"move {a.key} {state_key(cfg, cur) or cur}->{a.to_key}")
         return
+    moves = set(cfg["tracker"].get("mayMove", []))
+    cur = tracker.get(a.key).state
+    frm = state_key(cfg, cur) or cur
+    # a ticket first built in dry run was never claimed, so a retry ships it straight from todo
+    if f"{frm}->{a.to_key}" not in moves and {f"{frm}->inProgress", f"inProgress->{a.to_key}"} <= moves:
+        tracker.transition(a.key, "inProgress")
     tracker.transition(a.key, a.to_key)
     state.log_run(cfg["id"], a.key, "transition", f"to {a.to_key}")
     print(f"moved {a.key} to {a.to_key}")

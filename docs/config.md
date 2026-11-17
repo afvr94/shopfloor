@@ -65,7 +65,7 @@ Required for `shopfloor install` to install the crew's timer.
 | `tracker` | object | required | Ticket source. |
 | `tracker.type` | string | required | `"linear"` or `"github"`. Only the block of the active type is validated. |
 | `tracker.tokenFile` | string | required for `linear`, refused for `github` | Path to the file holding the Linear API key: `0400` (as `init` writes it) or `0600`. A `github` tracker has no token file; it uses your `gh` login. |
-| `tracker.mayMove` | string[] | none | Allowed state moves as `from->to`, both keys of `tracker.linear.states` for `linear`, or both of `todo`, `inProgress`, `review` for `github`. |
+| `tracker.mayMove` | string[] | none | Allowed state moves as `from->to`, both keys of `tracker.linear.states` for `linear`, or both of `todo`, `inProgress`, `review` for `github`. A move to `review` from `todo`, which happens when you `retry` a ticket first built in dry run, goes through `inProgress` when both of those moves are allowed. |
 | `tracker.linear` | object | | Linear settings. |
 | `tracker.linear.team` | string | required | Team key, such as `ENG`. |
 | `tracker.linear.label` | string | `"shopfloor"` | Opt-in label (case-insensitive). |
