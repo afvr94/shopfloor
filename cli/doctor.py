@@ -276,13 +276,13 @@ def _crew_rows(cid: str, deps: dict, live: bool = False) -> list[Row]:
     except config.ConfigError as e:
         return [(False, f"{cid}: config", redact(str(e)))]
     rows: list[Row] = [(True, f"{cid}: config", "")]
-    ttype = cfg["tracker"]["type"]
-    rows += [_secret_row(f"{cid}: {k}", cfg[k]["tokenFile"]) for k in ("tracker", "chat") if k == "chat" or ttype == "linear"]
+    ttype, ctype = cfg["tracker"]["type"], cfg["chat"]["type"]
+    rows += [_secret_row(f"{cid}: {k}", cfg[k]["tokenFile"]) for k in ("tracker", "chat") if cfg[k]["type"] in ("linear", "slack")]
     tracker, chat = deps["tracker"](cfg), deps["chat"](cfg)
     rows.append(_guarded(f"{cid}: {ttype} viewer", lambda: tracker.viewer() and None))
     rows.append(_guarded(f"{cid}: {ttype} team", lambda: "; ".join(tracker.team_check()) or None))
-    rows.append(_guarded(f"{cid}: slack auth", lambda: chat.auth_test() and None))
-    rows.append(_guarded(f"{cid}: slack channel", chat.channel_check))
+    rows.append(_guarded(f"{cid}: {ctype} auth", lambda: chat.auth_test() and None))
+    rows.append(_guarded(f"{cid}: {ctype} channel", chat.channel_check))
     rows += _repo_rows(cid, cfg, deps)
     live_cfg = {**cfg, "dryRun": False}  # dry run blocks every push; test the protected-branch rule itself
     rows.append(_guarded(f"{cid}: guard self-test", lambda: None if decide(
