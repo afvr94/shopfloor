@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from board import listener
+from engine.adapters.chat.base import Reply
 from engine.adapters.chat.slack import SlackChat
 from engine.lib import paths, state
 from engine.lib.commands import CommandQueue
@@ -66,6 +67,17 @@ class ListenerTest(unittest.TestCase):
         (Path(os.environ["SHOPFLOOR_HOME"]) / "crews" / "aaa.json").write_text("{")
         state.save_ticket("demo", "ENG-1", stage="needs_you", thread=THREAD)
         self.assertEqual(listener.poll_once(), 1)
+
+    def test_github_replies_queue_with_github_source(self):
+        crew = {**CREW, "tracker": {"type": "github", "github": {"repo": "o/app"}},
+                "chat": {"type": "github", "github": {"owner": "ana"}}}
+        (Path(os.environ["SHOPFLOOR_HOME"]) / "crews" / "demo.json").write_text(json.dumps(crew))
+        fake = mock.Mock()
+        fake.poll.return_value = [Reply("GH-1", "ana", "approve", "2026-01-01T00:00:00Z")]
+        state.save_ticket("demo", "GH-1", stage="needs_you", thread={"channel": "o/app#1", "ts": "7"})
+        with mock.patch.object(listener, "make_chat", lambda cfg: fake):
+            self.assertEqual(listener.poll_once(), 1)
+        self.assertEqual([r["source"] for r in self.pending()], ["github"])
 
 
 if __name__ == "__main__":

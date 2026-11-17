@@ -248,6 +248,26 @@ class Doctor(unittest.TestCase):
         self.assertNotIn("demo: tracker secret", rows)
         self.assertNotIn("demo: linear viewer", rows)
 
+    def test_github_only_crew_has_github_chat_rows_and_no_secret_rows(self):
+        f = paths.crew_config_path("demo")
+        cfg = json.loads(f.read_text())
+        cfg["tracker"] = {"type": "github", "github": {"repo": "owner/app"}, "mayMove": ["todo->inProgress"]}
+        cfg["chat"] = {"type": "github", "github": {"owner": "octo"}}
+        f.write_text(json.dumps(cfg))
+
+        def gh(argv, input=None):
+            if argv[2] == "user":
+                return "octo\n"
+            if argv[2] == "repos/owner/app":
+                return json.dumps({"has_issues": True})
+            return "shopfloor\nshopfloor:in-progress\nshopfloor:review\n"
+        fake = FakeGh(gh)
+        deps = {**self.deps(), "tracker": lambda c: make_tracker(c, run=fake), "chat": lambda c: make_chat(c, run=fake)}
+        rows = {n: ok for ok, n, _ in doctor.check_all("demo", deps)}
+        self.assertTrue(rows["demo: github auth"] and rows["demo: github channel"])
+        for gone in ("demo: tracker secret", "demo: chat secret", "demo: slack auth", "demo: slack channel"):
+            self.assertNotIn(gone, rows)
+
     def test_all_green_with_fakes(self):
         rows = self.rows()
         self.assertEqual(self.failing(rows), [], rows)

@@ -9,6 +9,9 @@ from engine.lib import proc
 from engine.lib.redact import redact
 
 
+MARKER = "<!-- shopfloor -->"
+
+
 def _names(issue: dict) -> list[str]:
     return [l["name"] for l in issue["labels"]]
 
@@ -100,7 +103,7 @@ class GitHubTracker:
 
     def comment(self, key: str, body: str) -> str:
         out = self._gh("api", "-X", "POST", f"repos/{self.repo}/issues/{self._number(key)}/comments",
-                       "--input", "-", "--jq", ".id", input=json.dumps({"body": body}))
+                       "--input", "-", "--jq", ".id", input=json.dumps({"body": body + "\n\n" + MARKER}))
         return str(out.strip())
 
     def update_comment(self, key: str, comment_id: str, body: str) -> None:
@@ -109,8 +112,10 @@ class GitHubTracker:
         found = json.loads(self._gh("api", f"repos/{self.repo}/issues/comments/{comment_id}"))
         if not str(found.get("issue_url", "")).endswith(f"/issues/{self._number(key)}"):
             raise TrackerError(f"comment {comment_id} is not on {key}")
+        if not str(found.get("body") or "").rstrip().endswith(MARKER):
+            raise TrackerError(f"comment {comment_id} is not one of Shopfloor's")
         self._gh("api", "-X", "PATCH", f"repos/{self.repo}/issues/comments/{comment_id}", "--input", "-",
-                 input=json.dumps({"body": body}))
+                 input=json.dumps({"body": body + "\n\n" + MARKER}))
 
     def link_pr(self, key: str, url: str) -> None:
         bodies = self._gh("api", "--paginate", f"repos/{self.repo}/issues/{self._number(key)}/comments",

@@ -150,6 +150,40 @@ class ConfigTest(Base):
     def test_validate_rejects_unknown_maymove_state(self):
         self.assertIn("mayMove", self.errors(lambda c: c["tracker"]["mayMove"].append("todo->done")))
 
+    def github_chat(self, cfg, **chat):
+        cfg["tracker"] = {"type": "github", "github": {"repo": "acme/app"}, "mayMove": ["todo->inProgress"]}
+        cfg["chat"] = {"type": "github", "github": {"owner": "ana"}, **chat}
+
+    def test_github_chat_validates(self):
+        cfg = example()
+        self.github_chat(cfg)
+        self.assertEqual(config.validate(cfg), [])
+
+    def test_github_chat_needs_github_tracker(self):
+        cfg = example()
+        self.github_chat(cfg)
+        cfg["tracker"] = {"type": "linear", "tokenFile": "/x"}
+        self.assertIn("chat.type github needs tracker.type github: the thread is the ticket's issue",
+                      config.validate(cfg))
+
+    def test_github_chat_refuses_token_file(self):
+        cfg = example()
+        self.github_chat(cfg, tokenFile="/x")
+        self.assertIn("chat.tokenFile is not used with github; the chat uses your gh login", config.validate(cfg))
+
+    def test_github_chat_needs_owner_login(self):
+        for owner in (None, "-ana", "a--b", "a" * 40):
+            cfg = example()
+            self.github_chat(cfg)
+            cfg["chat"]["github"] = {} if owner is None else {"owner": owner}
+            self.assertIn("chat.github.owner", "\n".join(config.validate(cfg)), owner)
+
+    def test_slack_chat_needs_token_file(self):
+        self.assertIn("chat.tokenFile is required for slack", self.errors(lambda c: c["chat"].pop("tokenFile")))
+
+    def test_unknown_chat_type(self):
+        self.assertIn("chat.type must be 'slack' or 'github'", self.errors(lambda c: c["chat"].update(type="irc")))
+
     def test_validate_rejects_channel_id_as_owner(self):
         # the wizard asks for the channel id right before the owner id, and both are opaque strings
         self.assertIn("ownerUserId", self.errors(lambda c: c["chat"]["slack"].update(ownerUserId="C0123")))

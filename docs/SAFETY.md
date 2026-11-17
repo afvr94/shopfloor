@@ -24,7 +24,7 @@ Every tool call in a crew session passes through a `PreToolUse` hook before it r
 
 - allows only commands on a default-deny list; anything it cannot parse or recognise is blocked
 - blocks every `gh` call and `git push`, `git pull` and any `git fetch` that is not from a `.bundle` file in the ticket folder, with a reason naming the `sf` command that does the same (section 4); allows `git bundle create` only into the ticket folder; blocks rebase and `reset --hard` on protected branches (reading the branch from `.git/HEAD` as text, never by running git), and otherwise runs local git only in the crew's worktrees
-- blocks direct calls to the Linear and Slack APIs
+- blocks direct calls to the Linear, Slack and GitHub APIs
 - blocks commands and file tools that name a secret path: `.env` files, `~/.shopfloor/secrets`, the crew's token files, `guard.secretFiles`, `guard.offLimits` and the credential defaults listed in section 6
 - allows writes only inside the crew's worktrees and tickets folders (and the system temp directory); inside those it still blocks `.git` and `.claude` paths and `CLAUDE.md` or `AGENTS.md` at the worktrees root or in a ticket's folder there, which would become instructions for later sessions
 - blocks every write to `~/.shopfloor/state/<crew>/ticketstate`, where `sf` keeps each ticket's state, branch and briefing (compared case-insensitively); the check runs before the tool opens the path, so section 4 also covers a path race past it
@@ -87,7 +87,7 @@ Claude Code's own Read, Write and Edit tools are not sandboxed: they run as you.
 
 - the crew's state folder, `~/.shopfloor/state/<crew>` itself (its `worktrees/`, `tickets/`, `transport/` and `merge/` folders stay `0700`: the sandbox and git write inside them)
 - `ticketstate/` and each `ticketstate/<KEY>/`
-- the files `sf` keeps there: ticket state and briefings, the command queue and its cursor, lessons, the run log, the tick and build locks and the Slack listener's cursor
+- the files `sf` keeps there: ticket state and briefings, the command queue and its cursor, lessons, the run log, the tick and build locks and the chat listener's cursor
 
 Claude Code's Write tool writes a temp file beside its target and renames it into place. In a read-only folder neither step can happen, so the write fails with a permission error, whichever path the race aimed it at. `sf`, the board and the listener open a folder (`0700`) only for the length of their own write or append, under a lock on the folder that every `sf` process shares, and lock it again afterwards, also when the write fails. The window is that one write.
 
@@ -137,9 +137,11 @@ Crews may not read these credential paths, through the guard and through the san
 
 Linear comments are signed with the crew's voice name so they are distinguishable from yours.
 
+With GitHub chat, the crew's chat posts go out under your own `gh` login, signed with the crew's voice name. Only new comments from `chat.github.owner` that don't end with Shopfloor's hidden marker count as commands. `sf` posts only to the ticket's own issue in the configured repo, and crews can't set the ticket's thread, so they can't make `sf` comment anywhere else. Dry run doesn't hold chat back: on a public repo, the crew's plan and questions are public.
+
 ## 7. Pausing and approval
 
-While a crew is paused, `sf merge` refuses to merge; that is the only pause rule enforced in code. Not starting builds or claiming new tickets while paused is part of the crew's instructions, like resume. Only your commands in the Slack thread are meant to change it. The instructions a crew follows resume only when an owner `resume` command is pending. Crews cannot write the command queue from the sandbox, its folder is read-only to Claude Code's file tools while `sf` isn't writing it, and the queue is a signed chain (section 4), so a command a crew slips in is refused, not obeyed; crews cannot approve their own work or issue themselves commands. Note that `sf resume` is an ordinary command, so this rule is part of the crew's instructions and not a technical lock; layers 1 to 5 are what hold if a crew ignores it.
+While a crew is paused, `sf merge` refuses to merge; that is the only pause rule enforced in code. Not starting builds or claiming new tickets while paused is part of the crew's instructions, like resume. Only your commands in the ticket's thread are meant to change it. The instructions a crew follows resume only when an owner `resume` command is pending. Crews cannot write the command queue from the sandbox, its folder is read-only to Claude Code's file tools while `sf` isn't writing it, and the queue is a signed chain (section 4), so a command a crew slips in is refused, not obeyed; crews cannot approve their own work or issue themselves commands. Note that `sf resume` is an ordinary command, so this rule is part of the crew's instructions and not a technical lock; layers 1 to 5 are what hold if a crew ignores it.
 
 ## 8. The board
 

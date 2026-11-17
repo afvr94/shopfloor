@@ -120,11 +120,23 @@ def validate(cfg: dict) -> list[str]:
             others = [block.get("label"), *(block.get("holdLabels") or [])]
             if set(lower) & {o.lower() for o in others if isinstance(o, str)}:
                 errs.append("tracker.github.states labels must differ from the opt-in label and hold labels")
-    if d("chat").get("type") != "slack":
-        errs.append("chat.type must be 'slack'")
-    owner = (d("chat").get("slack") or {}).get("ownerUserId")
-    if owner is not None and not (isinstance(owner, str) and re.fullmatch(r"[UW][A-Z0-9]+", owner)):
-        errs.append("chat.slack.ownerUserId must be your Slack member ID, which starts with U (not the channel ID)")
+    chat = d("chat")
+    if chat.get("type") == "slack":
+        if not chat.get("tokenFile"):
+            errs.append("chat.tokenFile is required for slack")
+        owner = (chat.get("slack") or {}).get("ownerUserId")
+        if owner is not None and not (isinstance(owner, str) and re.fullmatch(r"[UW][A-Z0-9]+", owner)):
+            errs.append("chat.slack.ownerUserId must be your Slack member ID, which starts with U (not the channel ID)")
+    elif chat.get("type") == "github":
+        if ttype != "github":
+            errs.append("chat.type github needs tracker.type github: the thread is the ticket's issue")
+        if "tokenFile" in chat:
+            errs.append("chat.tokenFile is not used with github; the chat uses your gh login")
+        login = (chat.get("github") or {}).get("owner")
+        if not (isinstance(login, str) and re.fullmatch(r"[A-Za-z0-9](?:-?[A-Za-z0-9]){0,38}", login)):
+            errs.append("chat.github.owner must be your GitHub login")
+    else:
+        errs.append("chat.type must be 'slack' or 'github'")
     flow = d("gitFlow")
     if flow.get("type") not in ("pr-only", "squash-on-green", "merge-to-test-branch"):
         errs.append("gitFlow.type must be pr-only, squash-on-green or merge-to-test-branch")
@@ -249,6 +261,10 @@ def list_crews() -> list[str]:
     if crews:
         return list(crews)
     return sorted(p.stem for p in (paths.shopfloor_home() / "crews").glob("*.json"))
+
+
+def sign(body: str, voice_name: str) -> str:
+    return f"{body}\n\n— {voice_name}" + ("" if voice_name == "Shopfloor" else ", a Shopfloor crew")
 
 
 def voice_style(cfg: dict) -> str:
