@@ -129,6 +129,19 @@ class ScrubCheck(unittest.TestCase):
     def test_real_entry_still_hits(self):
         self.assertEqual(self.scrub("\n  \nShopfloor\n").returncode, 1)
 
+    def test_co_author_trailers_are_skipped(self):
+        # GitHub adds Co-authored-by trailers on squash merges; history on a protected main can't be rewritten
+        with tempfile.TemporaryDirectory() as repo, tempfile.NamedTemporaryFile("w", suffix=".txt") as pats:
+            git = ["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.org"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            msg = "feat: x\n\nbody mentions zz-body-qq\n\nCo-authored-by: Zz <zz-trailer-qq@example.org>\n"
+            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", msg], check=True)
+            run = lambda pat: (pats.seek(0), pats.truncate(), pats.write(pat), pats.flush(), subprocess.run(
+                ["sh", str(ROOT / "scripts" / "scrub-check.sh"), pats.name], cwd=repo,
+                capture_output=True, text=True, timeout=60).returncode)[-1]
+            self.assertEqual(run("zz-trailer-qq\n"), 0)
+            self.assertEqual(run("zz-body-qq\n"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
