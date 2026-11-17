@@ -104,6 +104,11 @@ class GitHubTracker:
         return str(out.strip())
 
     def update_comment(self, key: str, comment_id: str, body: str) -> None:
+        if not re.fullmatch(r"[0-9]+", comment_id):
+            raise TrackerError(f"{comment_id!r} is not a GitHub comment id")
+        found = json.loads(self._gh("api", f"repos/{self.repo}/issues/comments/{comment_id}"))
+        if not str(found.get("issue_url", "")).endswith(f"/issues/{self._number(key)}"):
+            raise TrackerError(f"comment {comment_id} is not on {key}")
         self._gh("api", "-X", "PATCH", f"repos/{self.repo}/issues/comments/{comment_id}", "--input", "-",
                  input=json.dumps({"body": body}))
 

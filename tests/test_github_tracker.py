@@ -161,10 +161,28 @@ class GitHubTrackerTests(unittest.TestCase):
         self.assertFalse(any("kept off argv" in a for a in argv))
 
     def test_update_comment(self):
-        t, fake = tracker([""])
+        t, fake = tracker([json.dumps({"issue_url": "https://api.github.com/repos/acme/app/issues/7"}), ""])
         t.update_comment("GH-7", "55", "x")
-        self.assertEqual(fake.calls[0], (["gh", "api", "-X", "PATCH", "repos/acme/app/issues/comments/55",
-                                          "--input", "-"], json.dumps({"body": "x"})))
+        self.assertEqual(fake.calls, [
+            (["gh", "api", "repos/acme/app/issues/comments/55"], None),
+            (["gh", "api", "-X", "PATCH", "repos/acme/app/issues/comments/55", "--input", "-"],
+             json.dumps({"body": "x"}))])
+
+    def test_update_comment_rejects_non_numeric_ids(self):
+        for bad in ("1/../../repos/other/repo/issues/5", "12?x", "12#x", "", " 12", "١٢"):
+            with self.subTest(bad=bad):
+                t, fake = tracker([])
+                with self.assertRaisesRegex(TrackerError, "is not a GitHub comment id"):
+                    t.update_comment("GH-7", bad, "x")
+                self.assertEqual(fake.calls, [])
+
+    def test_update_comment_refuses_another_issues_comment(self):
+        for url in ("https://api.github.com/repos/acme/app/issues/70", "https://api.github.com/repos/acme/app/issues/8"):
+            with self.subTest(url=url):
+                t, fake = tracker([json.dumps({"issue_url": url})])
+                with self.assertRaisesRegex(TrackerError, "GH-7"):
+                    t.update_comment("GH-7", "55", "x")
+                self.assertEqual(writes(fake), [])
 
     def test_link_pr_idempotent(self):
         url = "https://github.com/acme/app/pull/9"
