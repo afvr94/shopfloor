@@ -162,7 +162,7 @@ class Install(Base):
 
 
 class Init(Base):
-    ANSWERS = {"crew id": "demo", "linear team key": "ENG", "slack channel id": "C1", "slack owner user id": "U1",
+    ANSWERS = {"crew id": "demo", "tracker (linear/github)": "linear", "linear team key": "ENG", "slack channel id": "C1", "slack owner user id": "U1",
                "repo name": "app", "github repo": "owner/app", "local path": "/x/app"}
 
     def ask(self, prompt):
@@ -211,6 +211,37 @@ class Init(Base):
         again = self.installer()
         self.assertEqual(self.wizard(again)[0], 1)
         again.install_crew.assert_not_called()
+
+    def test_github_wizard_writes_no_token_and_creates_the_labels(self):
+        answers = {**self.ANSWERS, "tracker (linear/github)": "github", "issues repo": "acme/app", "create the shopfloor labels": "y"}
+        made, out = [], []
+        secret = mock.Mock(side_effect=["xoxb-" + "TOK"])
+        with mock.patch.object(init.doctor, "check_all", return_value=[(True, "x", "")]):
+            code = init.run_wizard(ask=lambda p: next((v for k, v in answers.items() if k in p.lower()), ""),
+                                   out=out.append, secret=secret, installer=self.installer(),
+                                   make_label=lambda repo, name: made.append((repo, name)))
+        self.assertEqual(code, 0)
+        self.assertEqual(secret.call_count, 1)
+        raw = json.loads(paths.crew_config_path("demo").read_text())
+        self.assertEqual(raw["tracker"], {"type": "github", "github": {"repo": "acme/app", "label": "shopfloor"},
+                                          "mayMove": ["todo->inProgress", "inProgress->review"]})
+        self.assertEqual(made, [("acme/app", n) for n in ("shopfloor", "shopfloor:in-progress", "shopfloor:review")])
+        self.assertIn("docs/setup-github-issues.md", "\n".join(out))
+
+    def test_default_label_creator_forces_so_reruns_are_safe(self):
+        with mock.patch.object(init.proc, "run") as run:
+            init.create_label("acme/app", "shopfloor")
+        run.assert_called_once_with(["gh", "label", "create", "shopfloor", "--repo", "acme/app", "--force"])
+
+    def test_secret_refuses_a_github_tracker(self):
+        raw = json.loads(json.dumps(CREW))
+        raw["tracker"] = {"type": "github", "github": {"repo": "acme/app"}, "mayMove": []}
+        (paths.shopfloor_home() / "crews").mkdir(parents=True)
+        paths.crew_config_path("demo").write_text(json.dumps(raw))
+        secret = mock.Mock()
+        with self.assertRaisesRegex(ValueError, "uses your gh login"):
+            init.replace_secret("demo", "tracker", secret=secret)
+        secret.assert_not_called()
 
     def test_secret_replaces_a_token_and_keeps_it_locked(self):
         self.assertEqual(self.wizard(self.installer())[0], 0)
