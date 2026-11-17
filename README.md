@@ -21,7 +21,7 @@ No server, no SaaS, no dependencies: plain Python standard library plus Claude C
 
 ```mermaid
 flowchart LR
-    A["Linear ticket<br/>labeled shopfloor"] --> B["Crew claims it<br/>and plans"]
+    A["Linear ticket or GitHub issue<br/>labeled shopfloor"] --> B["Crew claims it<br/>and plans"]
     B --> C{"Needs a decision?"}
     C -- yes --> D["Asks in the Slack thread<br/>with a recommended answer"]
     D --> B
@@ -123,7 +123,7 @@ You need macOS or Linux, Python 3.10+, `git`, [`gh`](https://cli.github.com) log
 
 ## Configuration
 
-Every key is in [docs/config.md](docs/config.md): schedule, limits, the crew's name and voice, which Linear moves it may make, hold labels, merge rules, files it must never touch, and policy packs with your team's own rules. Examples live in [examples/](examples/): [crew.example.json](examples/crew.example.json), [crew.github.example.json](examples/crew.github.example.json), [policy-pack.example.md](examples/policy-pack.example.md) and [slack-app-manifest.json](examples/slack-app-manifest.json).
+Every key is in [docs/config.md](docs/config.md): schedule, limits, the crew's name and voice, which tracker moves it may make, hold labels, merge rules, files it must never touch, and policy packs with your team's own rules. Examples live in [examples/](examples/): [crew.example.json](examples/crew.example.json), [crew.github.example.json](examples/crew.github.example.json), [policy-pack.example.md](examples/policy-pack.example.md) and [slack-app-manifest.json](examples/slack-app-manifest.json).
 
 ## Inside
 
