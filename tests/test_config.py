@@ -179,6 +179,32 @@ class ConfigTest(Base):
         c["tracker"]["mayMove"] = ["todo->done"]
         self.assertTrue(any("tracker.mayMove entry 'todo->done'" in e for e in config.validate(c)))
 
+    def test_github_states_only_name_in_progress_and_review(self):
+        c = self.github_cfg()
+        c["tracker"]["github"]["states"] = {"todo": "shopfloor"}
+        self.assertIn("tracker.github.states may only name inProgress and review; todo has no label",
+                      config.validate(c))
+
+    def test_github_state_labels_must_be_nonempty_strings(self):
+        for bad in ("", None, 3):
+            with self.subTest(bad=bad):
+                c = self.github_cfg()
+                c["tracker"]["github"]["states"] = {"review": bad}
+                self.assertIn("tracker.github.states labels must be non-empty strings", config.validate(c))
+
+    def test_github_state_labels_must_differ(self):
+        c = self.github_cfg()
+        c["tracker"]["github"]["states"] = {"inProgress": "wip", "review": "WIP"}
+        self.assertIn("tracker.github.states labels must differ from each other", config.validate(c))
+
+    def test_github_state_labels_must_differ_from_opt_in_and_hold(self):
+        for states in ({"inProgress": "Shopfloor"}, {"review": "HOLD"}):
+            with self.subTest(states=states):
+                c = self.github_cfg()
+                c["tracker"]["github"]["states"] = states
+                self.assertIn("tracker.github.states labels must differ from the opt-in label and hold labels",
+                              config.validate(c))
+
     def test_unknown_tracker_type(self):
         c = self.github_cfg()
         c["tracker"]["type"] = "jira"

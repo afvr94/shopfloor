@@ -106,6 +106,20 @@ def validate(cfg: dict) -> list[str]:
             errs.append("tracker.github.repo must look like owner/name")
         if "tokenFile" in d("tracker"):
             errs.append("tracker.tokenFile is not used with github; the tracker uses your gh login")
+        states = block.get("states") if isinstance(block.get("states"), dict) else {}
+        for k in sorted(set(states) - {"inProgress", "review"}):
+            errs.append(f"tracker.github.states may only name inProgress and review; {k} has no label")
+        names = list(states.values())
+        if not all(isinstance(n, str) and n for n in names):
+            errs.append("tracker.github.states labels must be non-empty strings")
+        else:
+            lower = [n.lower() for n in names]
+            if len(set(lower)) < len(lower):
+                errs.append("tracker.github.states labels must differ from each other")
+            # a state label equal to the opt-in or a hold label hides every issue, and transition would strip it
+            others = [block.get("label"), *(block.get("holdLabels") or [])]
+            if set(lower) & {o.lower() for o in others if isinstance(o, str)}:
+                errs.append("tracker.github.states labels must differ from the opt-in label and hold labels")
     if d("chat").get("type") != "slack":
         errs.append("chat.type must be 'slack'")
     flow = d("gitFlow")
