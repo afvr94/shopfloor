@@ -9,5 +9,6 @@ grep -v '^[[:space:]]*$' "$1" > "$pats"
 [ -s "$pats" ] || exit 0
 hits=0
 git grep -n -i -F -f "$pats" && hits=1
-git log --format=%B | grep -n -i -F -f "$pats" && hits=1
+# GitHub adds Co-authored-by trailers on squash merges, and a protected main can't be rewritten to drop them
+git log --format=%B | grep -v -i '^co-authored-by:' | grep -n -i -F -f "$pats" && hits=1
 exit $hits
