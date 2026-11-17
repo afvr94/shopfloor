@@ -37,6 +37,8 @@ The names are configurable in `tracker.github.label` and `tracker.github.states`
 
 Add the `shopfloor` label to an open issue. The next run picks it up if it has no `shopfloor:` state label and no hold label. Pull requests and closed issues are ignored.
 
+Closing an issue (or removing the `shopfloor` label) makes the crew stand down, unless its pull request is already open.
+
 To keep a labeled issue away from the crew, add a hold label (default `hold`, set in `tracker.github.holdLabels`). Such an issue is never picked up and never changed.
 
 ## 4. What the crew does to labels

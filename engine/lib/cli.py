@@ -102,8 +102,11 @@ def h_config(a, cfg):
                       "holdLabels": trackerbase.settings(cfg).get("holdLabels", [])}})
 
 
-def _eligible(cfg: dict, labels: list[str]) -> bool:
-    have = {l.lower() for l in labels}
+def _eligible(cfg: dict, ticket: trackerbase.Ticket) -> bool:
+    # an issue closed by its merged PR still carries the review label; watch must see it to record the merge
+    if ticket.closed and ticket.state != "review":
+        return False
+    have = {l.lower() for l in ticket.labels}
     t = trackerbase.settings(cfg)
     return t["label"].lower() in have and not have & {h.lower() for h in t.get("holdLabels", [])}
 
@@ -116,7 +119,7 @@ def h_candidates(a, cfg):
 
 def h_get(a, cfg):
     t = _make("tracker", cfg).get(a.key)
-    _out({**dataclasses.asdict(t), "eligible": _eligible(cfg, t.labels)})
+    _out({**dataclasses.asdict(t), "eligible": _eligible(cfg, t)})
 
 
 def h_transition(a, cfg):

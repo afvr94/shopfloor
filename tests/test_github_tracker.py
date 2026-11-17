@@ -92,6 +92,10 @@ class GitHubTrackerTests(unittest.TestCase):
                        cfg_with(assignee="me"))
         self.assertEqual([x.key for x in t.list_candidates()], ["GH-2"])
 
+    def test_closed_flag(self):
+        t, _ = tracker([json.dumps(issue(1, state="closed")), json.dumps(issue(2))])
+        self.assertEqual((t.get("GH-1").closed, t.get("GH-2").closed), (True, False))
+
     def test_get_maps_ticket(self):
         t, fake = tracker([json.dumps(issue(42, ["shopfloor", "x"], assignees=["ana", "bob"]))])
         tk = t.get("gh-42")

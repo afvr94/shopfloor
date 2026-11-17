@@ -47,7 +47,7 @@ class GitHubTracker:
             key=f"GH-{n['number']}", id=n["node_id"], title=n["title"], body=n.get("body") or "",
             labels=_names(n), state=self._stage(n), url=n["html_url"],
             assignee=next((a["login"] for a in n.get("assignees") or []), None),
-            relations=[], created_at=n["created_at"],
+            relations=[], created_at=n["created_at"], closed=n["state"] == "closed",
         )
 
     def _issue(self, key: str) -> dict:

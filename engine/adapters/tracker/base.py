@@ -21,6 +21,7 @@ class Ticket:
     assignee: str | None
     relations: list[str]
     created_at: str
+    closed: bool = False
 
 
 def settings(cfg: dict) -> dict:
