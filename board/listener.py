@@ -34,8 +34,9 @@ def _poll_crew(crew_id: str) -> int:
     queue = CommandQueue(sdir)
     queued = 0
     try:
-        for r in make_chat(config.load_crew(crew_id)).poll(threads, since):
-            queued += queue.append(r.key, "slack", r.text, r.ts)
+        cfg = config.load_crew(crew_id)
+        for r in make_chat(cfg).poll(threads, since):
+            queued += queue.append(r.key, cfg["chat"]["type"], r.text, r.ts)
             since[r.key] = r.ts
     finally:
         if since != _read_cursors(cursor_path):
