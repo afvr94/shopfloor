@@ -110,8 +110,8 @@ def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, 
         for name in (gh["label"], *gh["states"].values()):
             try:
                 make_label(gh["repo"], name)
-            except proc.ProcError as e:
-                out(f"Could not create label {name}: {e}")
+            except (proc.ProcError, OSError) as e:
+                out(f"Could not create label {name}: {e}\n  run: gh label create {name} --repo {gh['repo']} --force")
 
     if doctor.report(doctor.check_all(cid, deps, during_init=True), out):
         out("Fix the failures above, then run: shopfloor install")

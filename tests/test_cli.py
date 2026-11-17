@@ -227,6 +227,25 @@ class Init(Base):
                                           "mayMove": ["todo->inProgress", "inProgress->review"]})
         self.assertEqual(made, [("acme/app", n) for n in ("shopfloor", "shopfloor:in-progress", "shopfloor:review")])
         self.assertIn("docs/setup-github-issues.md", "\n".join(out))
+        self.assertFalse((paths.shopfloor_home() / "secrets" / "demo-linear").exists())
+
+    def test_github_wizard_survives_a_failing_label_creator_and_prints_the_manual_command(self):
+        answers = {**self.ANSWERS, "tracker (linear/github)": "github", "issues repo": "acme/app"}
+        for exc in (init.proc.ProcError(["gh"], 1, "boom"), FileNotFoundError("gh")):
+            with self.subTest(exc=type(exc).__name__):
+                shutil.rmtree(paths.shopfloor_home(), ignore_errors=True)
+                out = []
+
+                def fail(repo, name, exc=exc):
+                    raise exc
+                with mock.patch.object(init.doctor, "check_all", return_value=[(True, "x", "")]):
+                    code = init.run_wizard(ask=lambda p: next((v for k, v in answers.items() if k in p.lower()), ""),
+                                           out=out.append, secret=mock.Mock(return_value="xoxb-" + "TOK"),
+                                           installer=self.installer(), make_label=fail)
+                self.assertEqual(code, 0)
+                text = "\n".join(out)
+                for n in ("shopfloor", "shopfloor:in-progress", "shopfloor:review"):
+                    self.assertIn(f"gh label create {n} --repo acme/app --force", text)
 
     def test_default_label_creator_forces_so_reruns_are_safe(self):
         with mock.patch.object(init.proc, "run") as run:
