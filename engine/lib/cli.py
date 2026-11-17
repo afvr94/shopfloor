@@ -14,6 +14,7 @@ from engine.adapters.chat.base import ChatError, ThreadRef
 from engine.adapters.gitflow import base as flowbase
 from engine.adapters.gitflow import make_gitflow
 from engine.adapters.gitflow.base import GitFlowError, pr_info
+from engine.adapters.tracker import base as trackerbase
 from engine.adapters.tracker import make_tracker
 from engine.adapters.tracker.base import TrackerError, state_key
 from engine.lib import briefing, config, crewfs, gitsafe, lessons, paths, state, transport, worktrees
@@ -97,16 +98,17 @@ def h_config(a, cfg):
           "limits": cfg["limits"],
           "repos": {n: {"github": r["github"], "base": r["base"]} for n, r in cfg["repos"].items()},
           "gitFlow": {"type": cfg["gitFlow"]["type"]}, "policyPacks": cfg["policyPacks"],
-          "tracker": {"label": _lin(cfg)["label"], "holdLabels": _lin(cfg).get("holdLabels", [])}})
+          "tracker": {"label": trackerbase.settings(cfg)["label"],
+                      "holdLabels": trackerbase.settings(cfg).get("holdLabels", [])}})
 
 
-def _lin(cfg: dict) -> dict:
-    return cfg["tracker"]["linear"]
-
-
-def _eligible(cfg: dict, labels: list[str]) -> bool:
-    have = {l.lower() for l in labels}
-    return _lin(cfg)["label"].lower() in have and not have & {h.lower() for h in _lin(cfg).get("holdLabels", [])}
+def _eligible(cfg: dict, ticket: trackerbase.Ticket) -> bool:
+    # an issue closed by its merged PR still carries the review label; watch must see it to record the merge
+    if ticket.closed and ticket.state != "review":
+        return False
+    have = {l.lower() for l in ticket.labels}
+    t = trackerbase.settings(cfg)
+    return t["label"].lower() in have and not have & {h.lower() for h in t.get("holdLabels", [])}
 
 
 def h_candidates(a, cfg):
@@ -117,7 +119,7 @@ def h_candidates(a, cfg):
 
 def h_get(a, cfg):
     t = _make("tracker", cfg).get(a.key)
-    _out({**dataclasses.asdict(t), "eligible": _eligible(cfg, t.labels)})
+    _out({**dataclasses.asdict(t), "eligible": _eligible(cfg, t)})
 
 
 def h_transition(a, cfg):

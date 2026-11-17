@@ -162,7 +162,7 @@ class Install(Base):
 
 
 class Init(Base):
-    ANSWERS = {"crew id": "demo", "linear team key": "ENG", "slack channel id": "C1", "slack owner user id": "U1",
+    ANSWERS = {"crew id": "demo", "tracker (linear/github)": "linear", "linear team key": "ENG", "slack channel id": "C1", "slack owner user id": "U1",
                "repo name": "app", "github repo": "owner/app", "local path": "/x/app"}
 
     def ask(self, prompt):
@@ -211,6 +211,58 @@ class Init(Base):
         again = self.installer()
         self.assertEqual(self.wizard(again)[0], 1)
         again.install_crew.assert_not_called()
+
+    def test_github_wizard_writes_no_token_and_creates_the_labels(self):
+        answers = {**self.ANSWERS, "tracker (linear/github)": "github", "issues repo": "acme/app", "create the shopfloor labels": "y"}
+        made, out = [], []
+        secret = mock.Mock(side_effect=["xoxb-" + "TOK"])
+        with mock.patch.object(init.doctor, "check_all", return_value=[(True, "x", "")]):
+            code = init.run_wizard(ask=lambda p: next((v for k, v in answers.items() if k in p.lower()), ""),
+                                   out=out.append, secret=secret, installer=self.installer(),
+                                   make_label=lambda repo, name, color: made.append((repo, name, color)))
+        self.assertEqual(code, 0)
+        self.assertEqual(secret.call_count, 1)
+        raw = json.loads(paths.crew_config_path("demo").read_text())
+        self.assertEqual(raw["tracker"], {"type": "github", "github": {"repo": "acme/app", "label": "shopfloor"},
+                                          "mayMove": ["todo->inProgress", "inProgress->review"]})
+        self.assertEqual(made, [("acme/app", "shopfloor", "0e8a16"), ("acme/app", "shopfloor:in-progress", "fbca04"),
+                                ("acme/app", "shopfloor:review", "1d76db")])
+        self.assertIn("docs/setup-github-issues.md", "\n".join(out))
+        self.assertFalse((paths.shopfloor_home() / "secrets" / "demo-linear").exists())
+
+    def test_github_wizard_survives_a_failing_label_creator_and_prints_the_manual_command(self):
+        answers = {**self.ANSWERS, "tracker (linear/github)": "github", "issues repo": "acme/app"}
+        for exc in (init.proc.ProcError(["gh"], 1, "boom"), FileNotFoundError("gh")):
+            with self.subTest(exc=type(exc).__name__):
+                shutil.rmtree(paths.shopfloor_home(), ignore_errors=True)
+                out = []
+
+                def fail(repo, name, color, exc=exc):
+                    raise exc
+                with mock.patch.object(init.doctor, "check_all", return_value=[(True, "x", "")]):
+                    code = init.run_wizard(ask=lambda p: next((v for k, v in answers.items() if k in p.lower()), ""),
+                                           out=out.append, secret=mock.Mock(return_value="xoxb-" + "TOK"),
+                                           installer=self.installer(), make_label=fail)
+                self.assertEqual(code, 0)
+                text = "\n".join(out)
+                for n, c in (("shopfloor", "0e8a16"), ("shopfloor:in-progress", "fbca04"), ("shopfloor:review", "1d76db")):
+                    self.assertIn(f"run: gh label create --color {c} --force --repo acme/app -- {n}\n", text + "\n")
+
+    def test_default_label_creator_forces_so_reruns_are_safe(self):
+        with mock.patch.object(init.proc, "run") as run:
+            init.create_label("acme/app", "-x", "0e8a16")
+        run.assert_called_once_with(["gh", "label", "create", "--color", "0e8a16", "--force", "--repo", "acme/app",
+                                     "--", "-x"])
+
+    def test_secret_refuses_a_github_tracker(self):
+        raw = json.loads(json.dumps(CREW))
+        raw["tracker"] = {"type": "github", "github": {"repo": "acme/app"}, "mayMove": []}
+        (paths.shopfloor_home() / "crews").mkdir(parents=True)
+        paths.crew_config_path("demo").write_text(json.dumps(raw))
+        secret = mock.Mock()
+        with self.assertRaisesRegex(ValueError, "uses your gh login"):
+            init.replace_secret("demo", "tracker", secret=secret)
+        secret.assert_not_called()
 
     def test_secret_replaces_a_token_and_keeps_it_locked(self):
         self.assertEqual(self.wizard(self.installer())[0], 0)

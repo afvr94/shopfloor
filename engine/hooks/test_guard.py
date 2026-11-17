@@ -78,6 +78,7 @@ ROWS = [
     ("gh api --input", BASH, "gh api repos/o/app/pulls --input body.json", {}, "wt", True),
     ("gh api GET", BASH, "gh api repos/o/app/pulls/12", {}, "wt", True),
     ("gh api -X GET", BASH, "gh api -X GET repos/o/app/pulls/12/comments", {}, "wt", True),
+    ("gh api read issues", BASH, "gh api repos/o/app/issues", {}, "wt", True),
     # git merge
     ("merge on main", BASH, "git merge shopfloor/eng-1-x", {}, "main", True),
     ("merge on testBranch", BASH, "git merge shopfloor/eng-1-x", TEST_FLOW, "test", True),
