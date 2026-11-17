@@ -114,7 +114,8 @@ Claude Code's Write and Edit tools can create or replace a file but not delete o
 - Signatures detect a write, they don't prevent it; the folder locks are what prevent it. A write that lands inside `sf`'s own window is detected, not prevented: it can still destroy a record, which stops that ticket or the queue until you look.
 - Replay: an older signed copy of a record put back in place (an earlier cursor, an earlier ticket state) still passes its signature. Outside `sf`'s windows the locks prevent it. Inside a window it is detected by the window check and the record is refused until you clear it; it is not prevented. A replay that lands before `sf`'s own rename in the same window is overwritten by `sf`'s write and does no harm. In the command log, putting back a shorter signed log after newer commands were acked is also caught by the chain and the cursor; dropping the newest line before `sf` acked it is caught only by the window check.
 - A folder left open by a killed process stays open until the next sweep (the next `shopfloor run`, `sf` call or board start). A write that lands in that gap is neither prevented nor seen by the window check; only its signature is checked. `shopfloor doctor` shows the open folder.
-- The window check sees changes to the entries of the folder `sf` opened. A change that keeps the same inode, size, modification time and mode would pass it. The Write tool can't make one, since its rename always brings a new inode.
+- The window check sees changes to the entries of the folder `sf` opened. For the file `sf` itself writes in that window it compares only the inode and size `sf` left; for every other file, the inode, size, modification time and mode. A change that keeps those would pass it. The Write tool can't make one, since its rename always brings a new inode.
+- The window check covers the state folders only. A change to `secrets/` while `sf` has it open is not flagged; what keeps crews out of it is the guard, and the sandbox, which lets them neither read nor write there.
 - Hand edits you make outside `sf` are not checked: the window check only runs around `sf`'s own writes.
 - Records from Shopfloor builds before signing count as tampered.
 
@@ -157,3 +158,5 @@ Shopfloor doesn't add a board token on top. A crew that could reach the port cou
 - A crew passing data out through `sf` (a comment or chat post): `sf` runs outside the sandbox. The guard blocks secret paths as arguments and `sf` redacts token-shaped text, but a secret with no recognisable shape that the crew learned some other way could still be posted.
 - Credentials kept outside the deny-read list, such as keychain entries a toolchain can reach or tokens in environment variables.
 - Anything you allow through `guard` or git flow settings, such as merging automatically into a branch that deploys.
+
+Found a way past one of these layers? Report it privately, as [SECURITY.md](../SECURITY.md) explains.

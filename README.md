@@ -147,6 +147,8 @@ HOME=$(mktemp -d) SHOPFLOOR_HOME=$(mktemp -d)/sf python3 -m unittest
 
 Shopfloor starts with Linear and Slack. The tracker, chat and git flow sit behind small adapters in `engine/adapters/`, so others can be added without touching a crew's skills.
 
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the tests, the guard's test table and how to add an adapter. Report security problems privately, as [SECURITY.md](SECURITY.md) explains. Releases are in [CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Bundled third-party code and fonts are listed in [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).

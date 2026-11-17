@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in Shopfloor doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Found a way around the guard, the sandbox or `sf`, or a leaked credential? Don't file it here. Report it privately instead: see SECURITY.md.
+
+        Remove tokens, channel IDs, ticket text and anything else private from what you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. shopfloor run demo
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or doctor output
+      description: The relevant lines from `~/.shopfloor/logs/` or `shopfloor doctor`.
+      render: text
+  - type: input
+    id: commit
+    attributes:
+      label: Shopfloor commit
+      description: Output of `git rev-parse --short HEAD` in your checkout.
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS, Python and Claude Code versions
+      placeholder: macOS 15.5, Python 3.12, Claude Code 2.1.300
+    validations:
+      required: true
+  - type: dropdown
+    id: flow
+    attributes:
+      label: Git flow
+      options: [pr-only, squash-on-green, merge-to-test-branch, not sure]
