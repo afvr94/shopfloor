@@ -4,6 +4,10 @@ All notable changes to Shopfloor are listed here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- A GitHub Issues tracker: label an issue `shopfloor` and a crew takes it, using your gh login.
+
 ## [0.1.0] - 2026-11-16
 
 The first public release.

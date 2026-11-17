@@ -64,7 +64,7 @@ Required for `shopfloor install` to install the crew's timer.
 | --- | --- | --- | --- |
 | `tracker` | object | required | Ticket source. |
 | `tracker.type` | string | required | `"linear"` or `"github"`. Only the block of the active type is validated. |
-| `tracker.tokenFile` | string | required for `linear` | Path to the file holding the Linear API key: `0400` (as `init` writes it) or `0600`. |
+| `tracker.tokenFile` | string | required for `linear`, refused for `github` | Path to the file holding the Linear API key: `0400` (as `init` writes it) or `0600`. A `github` tracker has no token file; it uses your `gh` login. |
 | `tracker.mayMove` | string[] | none | Allowed state moves as `from->to`, both keys of `tracker.linear.states` for `linear`, or both of `todo`, `inProgress`, `review` for `github`. |
 | `tracker.linear` | object | | Linear settings. |
 | `tracker.linear.team` | string | required | Team key, such as `ENG`. |
@@ -76,13 +76,15 @@ Required for `shopfloor install` to install the crew's timer.
 | `tracker.linear.states.inProgress` | string | required | State for work in progress. |
 | `tracker.linear.states.review` | string | required | State once a pull request is open. |
 | `tracker.github` | object | | GitHub Issues settings, used when `tracker.type` is `"github"`. |
-| `tracker.github.repo` | string | required | `owner/name` of the repo whose issues the crew works. |
+| `tracker.github.repo` | string | required | `owner/name` of the repo whose issues the crew works. Not always the code repo. |
 | `tracker.github.label` | string | `"shopfloor"` | Opt-in label (case-insensitive). |
 | `tracker.github.holdLabels` | string[] | `["hold"]` | An issue with any of these labels is left alone. |
-| `tracker.github.assignee` | string or null | `null` | `null` for anyone, or a GitHub login. |
-| `tracker.github.states` | object | | Labels that mark the stages an issue passes through. |
+| `tracker.github.assignee` | string or null | `null` | `null` for anyone, `"me"` for your `gh` login, or a GitHub login. |
+| `tracker.github.states` | object | | Labels that mark the stages. An open issue with the opt-in label and neither of these is the `todo` stage. |
 | `tracker.github.states.inProgress` | string | `"shopfloor:in-progress"` | Label for work in progress. |
 | `tracker.github.states.review` | string | `"shopfloor:review"` | Label once a pull request is open. |
+
+Ticket keys for GitHub are `GH-<number>` and branches are `shopfloor/gh-42-<slug>`. Two crews that track different repos can both see a `GH-42`. That is harmless unless both crews push to the same code repo, so don't point them at one. See [setup-github-issues.md](setup-github-issues.md).
 
 ### `chat`
 
