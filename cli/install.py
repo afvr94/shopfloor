@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import plistlib
 import sys
+import time
 from pathlib import Path
 from string import Template
 
@@ -117,7 +118,15 @@ def _activate(unit_files: list[Path], runner, systemd_unit: str, label: str) -> 
             runner(["launchctl", "bootout", f"{target}/{label}"])
         except proc.ProcError:
             pass
-        runner(["launchctl", "bootstrap", target, str(unit_files[0])])
+        # bootout returns before launchd has torn a running KeepAlive service down, and bootstrapping over it fails
+        for attempt in range(10):
+            try:
+                runner(["launchctl", "bootstrap", target, str(unit_files[0])])
+                break
+            except proc.ProcError:
+                if attempt == 9:
+                    raise
+                time.sleep(0.5)
     else:
         runner(["systemctl", "--user", "daemon-reload"])
         runner(["systemctl", "--user", "enable", "--now", systemd_unit])
