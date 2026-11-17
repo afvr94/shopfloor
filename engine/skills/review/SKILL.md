@@ -13,7 +13,7 @@ Load `/shopfloor:rules` first. Input is a ticket key whose branch is committed a
 3. Note the repo's own test and lint commands, the ones you ran while building.
 
 ## 2. Passes
-Run them in this order, one at a time, because each pass edits the tree the next one reads. Skip a pass when its condition fails and note why.
+Run them in this order, one at a time, because each pass edits the tree the next one reads. Before each pass, list the changed files again with the same `git diff --name-only`, since an earlier pass may have added or removed some. Skip a pass when its condition fails and note why.
 
 | # | Pass | Runs when | Looks for |
 |---|------|-----------|-----------|
@@ -36,7 +36,7 @@ When a pass reports a deal breaker, leave the worktree as it is, ask the owner w
 
 ## 3. After each pass that changed files
 1. Run the repo's tests and lint. If they fail, fix the failure, or `git restore` that pass's edits and `rm` the files it added. Never start the next pass with failing tests or lint.
-2. `git add` the pass's files and commit them on their own with `git commit -m`, a Conventional Commit with the ticket key as scope, for example `refactor(<KEY>): simplify per review`. No attribution or sign-off lines.
+2. `git add` the pass's files and commit them on their own with `git commit -m`, a Conventional Commit with the ticket key as scope, for example `refactor(<KEY>): simplify per review` or `fix(<KEY>): handle an empty list`. No attribution or sign-off lines.
 
 ## 4. Record
 Write `<dir>/review.md`: one line per pass with its outcome (`fixed`, `no change needed` or `skipped` and why), then the findings skipped on purpose and why. The build skill uses it for the PR body and the briefing's risk.

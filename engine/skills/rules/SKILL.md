@@ -51,7 +51,7 @@ A guard around this session denies by default. Work within what it allows:
 - Read files with Read, Grep and Glob, or `cat`, `grep`, `rg` and `sed -n`. WebFetch is off; WebSearch is on.
 - Run `sf` by name and on its own (no redirect, `cd` or `$(...)` in the same command): only then does it run outside the sandbox and can write crew state.
 - Edit with Edit and Write, only inside your ticket worktree or your ticket folder.
-- Local git on your own branch: `git status`, `git diff`, `git log`, `git add`, `git commit -m` or `-F`, `git checkout`, `git fetch <dir>/in-<repo>.bundle '+refs/heads/*:refs/remotes/origin/*'`, `git rebase origin/<base>` and `git bundle create <dir>/out-<repo>.bundle <branch>`. `sf push` pushes only your ticket's `shopfloor/*` branch.
+- Local git on your own branch: `git status`, `git diff`, `git log`, `git add`, `git commit -m` or `-F`, `git checkout`, `git restore`, `git fetch <dir>/in-<repo>.bundle '+refs/heads/*:refs/remotes/origin/*'`, `git rebase origin/<base>` and `git bundle create <dir>/out-<repo>.bundle <branch>`. `sf push` pushes only your ticket's `shopfloor/*` branch.
 - Run the repo's own tests and lint through its toolchain: `npm test`, `make <target>`, `pytest`, `go test`, `cargo test`, `npx <tool>`.
 - Do not run shell scripts, inline interpreter one-liners, env-var prefixes or interactive editors. Write commit messages with `-m` or `-F`.
 
