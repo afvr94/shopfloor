@@ -32,11 +32,11 @@ Run each pass in a fresh Agent, in the foreground. The brief is all the context 
 
 Do not put your own view of the code in the brief; an agent handed a conclusion tends to confirm it.
 
-A finding that hits a deal breaker in `/shopfloor:rules` is not fixed in the pass: stop and `sf chat ask`, and leave the worktree as it is.
+When a pass reports a deal breaker, stop and `sf chat ask`, and leave the worktree as it is.
 
 ## 3. After each pass that changed files
 1. Run the repo's tests and lint. If they fail, fix the failure, or `git restore` that pass's edits and `rm` the files it added. Never carry a red tree into the next pass.
 2. `git add` the pass's files and commit them on their own with `git commit -m`, a Conventional Commit with the ticket key as scope, for example `refactor(<KEY>): simplify per review`. No attribution or sign-off lines.
 
 ## 4. Record
-Run the repo's full tests and lint once more. Write `<dir>/review.md`: one line per pass with its outcome (`fixed`, `no change needed` or `skipped` and why), then the findings skipped on purpose and why. The build skill uses it for the PR body and the briefing's risk.
+Write `<dir>/review.md`: one line per pass with its outcome (`fixed`, `no change needed` or `skipped` and why), then the findings skipped on purpose and why. The build skill uses it for the PR body and the briefing's risk.
