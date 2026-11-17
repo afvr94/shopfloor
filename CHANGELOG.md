@@ -4,6 +4,10 @@ All notable changes to Shopfloor are listed here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- The crew reviews its own diff before opening a pull request: a simplify pass, TypeScript and frontend passes when those files changed, then correctness last. Each pass commits its fixes on its own and the outcomes go in the PR body.
+
 ## [0.3.0] - 2026-11-17
 
 ### Added

@@ -131,7 +131,7 @@ Every key is in [docs/config.md](docs/config.md): schedule, limits, the crew's n
 bin/shopfloor      the CLI
 cli/               init, doctor, install, schedule
 engine/            the Claude Code plugin a crew runs with
-  skills/          tick, spec, build, watch and the ground rules
+  skills/          tick, spec, build, review, watch and the ground rules
   lib/             sf, state, signing, transport, briefings, lessons
   hooks/           the command guard
   adapters/        Linear, GitHub Issues, Slack, GitHub comments, and the three git flows
