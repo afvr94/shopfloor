@@ -53,8 +53,13 @@ class GitHubChat:
     def poll(self, threads: dict[str, ThreadRef], since: dict[str, str]) -> list[Reply]:
         out: list[Reply] = []
         for key, th in threads.items():
-            floor = int(since.get(key, th.ts))
-            raw = self._gh("api", "--paginate", self._comments_path(th.channel), "--jq", ".[]")
+            path = self._comments_path(th.channel)
+            floor = since.get(key, th.ts)
+            if not re.fullmatch(r"[0-9]+", floor):
+                raise ChatError(f"{key}'s reply cursor {floor!r} isn't a GitHub comment id; the thread was opened "
+                                "elsewhere — cancel the ticket or start it over")
+            floor = int(floor)
+            raw = self._gh("api", "--paginate", path, "--jq", ".[]")
             for c in map(json.loads, filter(None, raw.splitlines())):
                 body = c.get("body") or ""
                 if (c["id"] > floor and c["user"]["login"].lower() == self.owner.lower()

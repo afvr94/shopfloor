@@ -79,6 +79,23 @@ class GitHubChatTests(unittest.TestCase):
         make_chat({**CFG, "voice": {"name": "Rita"}}, run=fake).post(TH, "hi")
         self.assertEqual(json.loads(fake.calls[0][1])["body"], "hi\n\n— Rita, a Shopfloor crew\n\n" + MARKER)
 
+    def test_a_slack_thread_left_on_a_ticket_names_the_fix(self):
+        # a crew switched from Slack keeps the old thread and a Slack-style cursor on its open tickets
+        c, fake = chat([])
+        slack = ThreadRef("C0123", "1794941313.210769")
+        for since in ({}, {"GH-7": "1794941313.210769"}):
+            with self.assertRaises(ChatError) as cm:
+                c.poll({"GH-7": slack}, since)
+            self.assertIn("cancel the ticket or start it over", str(cm.exception))
+        self.assertEqual(fake.calls, [])
+
+    def test_a_non_numeric_cursor_names_the_fix(self):
+        c, fake = chat([])
+        with self.assertRaises(ChatError) as cm:
+            c.poll({"GH-7": ThreadRef("acme/app#7", "12")}, {"GH-7": "1794941313.210769"})
+        self.assertIn("cancel the ticket or start it over", str(cm.exception))
+        self.assertEqual(fake.calls, [])
+
     def test_thread_outside_the_repo_is_refused_without_calling_gh(self):
         for channel in ("other/repo#7", "acme/other#7", "acme/app-x#7", "x/acme/app#7", "acme/app#7/../x",
                         "acme/app#", "acme/app", "C0123"):
