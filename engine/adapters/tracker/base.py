@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from engine.lib.config import STAGES
+
 
 class TrackerError(Exception):
     pass
@@ -19,10 +21,15 @@ class Ticket:
     assignee: str | None
     relations: list[str]
     created_at: str
+    closed: bool = False
+
+
+def settings(cfg: dict) -> dict:
+    return cfg["tracker"][cfg["tracker"]["type"]]
 
 
 def state_key(cfg: dict, state_name: str) -> str | None:
-    for key, name in cfg["tracker"]["linear"]["states"].items():
+    for key, name in settings(cfg).get("states", {}).items():
         if name == state_name:
             return key
     return None

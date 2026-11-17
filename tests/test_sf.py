@@ -298,6 +298,13 @@ class SfTest(SfCase):
         self.tracker.get = lambda key: Ticket(key, "i", "t", "b", [], "Todo", "u", None, [], "")
         self.assertFalse(json.loads(self.sf("tracker", "get", "ENG-1")[1])["eligible"])
 
+    def test_closed_issue_is_not_eligible_unless_in_review(self):
+        for stage, eligible in (("todo", False), ("inProgress", False), ("review", True)):
+            with self.subTest(stage=stage):
+                self.tracker.get = lambda key, s=stage: Ticket(key, "i", "t", "b", ["shopfloor"], s, "u", None, [], "",
+                                                               closed=True)
+                self.assertIs(json.loads(self.sf("tracker", "get", "GH-1")[1])["eligible"], eligible)
+
     def test_config_includes_tracker_labels(self):
         d = json.loads(self.sf("config")[1])
         self.assertEqual(d["tracker"], {"label": "shopfloor", "holdLabels": ["hold"]})

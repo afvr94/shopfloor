@@ -21,7 +21,7 @@ from engine.hooks.guard import decide
 from engine.lib import config, paths, signing, state
 from engine.lib.proc import ProcError
 from engine.lib.proc import run as real_run
-from tests.fakes import FakeLinear, FakeSlack
+from tests.fakes import FakeGh, FakeLinear, FakeSlack
 
 TOKEN = "lin_api_" + "SECRETVALUE123"
 SLACK_TOKEN = "xoxb-" + "abc"
@@ -229,6 +229,24 @@ class Doctor(unittest.TestCase):
         with mock.patch.object(doctor, "decide", lambda *a: seen.append(a[3]) or real(*a)):
             self.rows()
         self.assertEqual([c["dryRun"] for c in seen], [False])
+
+    def test_github_crew_rows_are_named_by_tracker_type_and_have_no_tracker_secret(self):
+        f = paths.crew_config_path("demo")
+        cfg = json.loads(f.read_text())
+        cfg["tracker"] = {"type": "github", "github": {"repo": "owner/app"}, "mayMove": ["todo->inProgress"]}
+        f.write_text(json.dumps(cfg))
+
+        def gh(argv, input=None):
+            if argv[2] == "user":
+                return "octo\n"
+            if argv[2] == "repos/owner/app":
+                return json.dumps({"has_issues": True})
+            return "shopfloor\nshopfloor:in-progress\nshopfloor:review\n"
+        deps = {**self.deps(), "tracker": lambda c: make_tracker(c, run=FakeGh(gh))}
+        rows = {n: ok for ok, n, _ in doctor.check_all("demo", deps)}
+        self.assertTrue(rows["demo: github viewer"] and rows["demo: github team"])
+        self.assertNotIn("demo: tracker secret", rows)
+        self.assertNotIn("demo: linear viewer", rows)
 
     def test_all_green_with_fakes(self):
         rows = self.rows()
