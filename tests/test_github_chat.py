@@ -14,6 +14,7 @@ from tests.fakes import FakeGh
 CFG = {
     "tracker": {"type": "github", "github": {"repo": "acme/app"}},
     "chat": {"type": "github", "github": {"owner": "Ana"}},
+    "voice": {"name": "Shopfloor"},
 }
 TICKET = Ticket(key="GH-7", id="n7", title="t", body="", labels=[], state="todo",
                 url="https://github.com/acme/app/issues/7", assignee=None, relations=[],
@@ -49,7 +50,7 @@ class GitHubChatTests(unittest.TestCase):
         argv, stdin = fake.calls[0]
         self.assertEqual(argv, ["gh", "api", "-X", "POST", "repos/acme/app/issues/7/comments",
                                 "--input", "-", "--jq", ".id"])
-        self.assertEqual(stdin, json.dumps({"body": "hi\n\n" + MARKER}))
+        self.assertEqual(stdin, json.dumps({"body": "hi\n\n— Shopfloor\n\n" + MARKER}))
         self.assertFalse(any("hi" in a for a in argv))
 
     def test_ask_format(self):
@@ -67,6 +68,34 @@ class GitHubChatTests(unittest.TestCase):
                          [Reply("GH-7", "Ana", "approve", "10"), Reply("GH-7", "Ana", "2", "13")])
         self.assertEqual(fake.calls[0][0], ["gh", "api", "--paginate", "repos/acme/app/issues/7/comments",
                                             "--jq", ".[]"])
+
+    def test_poll_counts_owner_text_that_only_quotes_the_marker(self):
+        out = "\n".join([comment(10, "ana", "about " + MARKER + " here"), comment(11, "ana", "bot\n\n" + MARKER + "\n")])
+        c, _ = chat([out + "\n"])
+        self.assertEqual(c.poll({"GH-7": TH}, {}), [Reply("GH-7", "Ana", "about " + MARKER + " here", "10")])
+
+    def test_post_signs_with_the_voice(self):
+        c, fake = chat(["1\n"])
+        make_chat({**CFG, "voice": {"name": "Rita"}}, run=fake).post(TH, "hi")
+        self.assertEqual(json.loads(fake.calls[0][1])["body"], "hi\n\n— Rita, a Shopfloor crew\n\n" + MARKER)
+
+    def test_thread_outside_the_repo_is_refused_without_calling_gh(self):
+        for channel in ("other/repo#7", "acme/other#7", "acme/app-x#7", "x/acme/app#7", "acme/app#7/../x",
+                        "acme/app#", "acme/app", "C0123"):
+            th = ThreadRef(channel, "9")
+            for name, call in (("post", lambda c: c.post(th, "hi")),
+                               ("ask", lambda c: c.ask(th, "Which?", ["a"], 1)),
+                               ("poll", lambda c: c.poll({"GH-7": th}, {}))):
+                with self.subTest(channel=channel, call=name):
+                    c, fake = chat([])
+                    with self.assertRaisesRegex(ChatError, "is not an issue in acme/app"):
+                        call(c)
+                    self.assertEqual(fake.calls, [])
+
+    def test_thread_repo_match_ignores_case(self):
+        c, fake = chat(["1\n"])
+        c.post(ThreadRef("ACME/App#7", "9"), "hi")
+        self.assertEqual(fake.calls[0][0][4], "repos/acme/app/issues/7/comments")
 
     def test_poll_floor_defaults_to_thread_ts(self):
         c, _ = chat([comment(9, "ana", "x") + "\n" + comment(10, "ana", "y") + "\n"])

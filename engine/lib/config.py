@@ -263,6 +263,10 @@ def list_crews() -> list[str]:
     return sorted(p.stem for p in (paths.shopfloor_home() / "crews").glob("*.json"))
 
 
+def sign(body: str, voice_name: str) -> str:
+    return f"{body}\n\n— {voice_name}" + ("" if voice_name == "Shopfloor" else ", a Shopfloor crew")
+
+
 def voice_style(cfg: dict) -> str:
     style = (cfg.get("voice") or {}).get("style") or DEFAULTS["voice"]["style"]
     return PLAIN_STYLE if style == "plain" else style

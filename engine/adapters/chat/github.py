@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 
 from engine.adapters.chat.base import ChatError, Reply, ThreadRef
 from engine.adapters.tracker.base import Ticket, settings
 from engine.adapters.tracker.github import MARKER
 from engine.lib import proc
+from engine.lib.config import sign
 from engine.lib.redact import redact
 
 
@@ -13,6 +15,7 @@ class GitHubChat:
     def __init__(self, cfg: dict, run=None):
         self.owner = cfg["chat"]["github"]["owner"]
         self.repo = settings(cfg)["repo"]
+        self.voice = cfg["voice"]["name"]
         self.run = run or (lambda argv, input=None: proc.run(argv, input=input))
 
     def _gh(self, *args: str, input: str | None = None) -> str:
@@ -24,8 +27,12 @@ class GitHubChat:
             raise ChatError(redact(str(e))) from None
 
     def _comments_path(self, channel: str) -> str:
-        repo, n = channel.rsplit("#", 1)
-        return f"repos/{repo}/issues/{n}/comments"
+        # The crew can't set the thread, but a stale or hand-edited one must still never reach another repo.
+        m = re.fullmatch(re.escape(self.repo) + r"#([0-9]+)", channel, re.IGNORECASE)
+        if not m:
+            raise ChatError(f"thread {channel!r} is not an issue in {self.repo}; this ticket's thread was opened "
+                            "elsewhere — cancel the ticket or start it over")
+        return f"repos/{self.repo}/issues/{m.group(1)}/comments"
 
     def open_thread(self, ticket: Ticket) -> ThreadRef:
         n = ticket.key.split("-", 1)[1]
@@ -35,7 +42,7 @@ class GitHubChat:
 
     def post(self, thread: ThreadRef, text: str) -> str:
         out = self._gh("api", "-X", "POST", self._comments_path(thread.channel), "--input", "-", "--jq", ".id",
-                       input=json.dumps({"body": text + "\n\n" + MARKER}))
+                       input=json.dumps({"body": sign(text, self.voice) + "\n\n" + MARKER}))
         return out.strip()
 
     def ask(self, thread: ThreadRef, question: str, options: list[str], recommendation: int) -> str:
@@ -51,7 +58,7 @@ class GitHubChat:
             for c in map(json.loads, filter(None, raw.splitlines())):
                 body = c.get("body") or ""
                 if (c["id"] > floor and c["user"]["login"].lower() == self.owner.lower()
-                        and MARKER not in body):
+                        and not body.rstrip().endswith(MARKER)):
                     out.append(Reply(key, self.owner, body, str(c["id"])))
         return sorted(out, key=lambda r: int(r.ts))
 
