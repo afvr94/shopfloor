@@ -4,9 +4,23 @@ All notable changes to Shopfloor are listed here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-17
+
 ### Added
 
 - GitHub issue comments as the crew's chat: with the GitHub tracker, a crew needs only a GitHub account. See [docs/setup-github-chat.md](docs/setup-github-chat.md).
+- The crew replies in the thread when it pauses or resumes.
+
+### Changed
+
+- `sf` only posts to the ticket's own issue, and crews can no longer set a ticket's thread.
+- The GitHub tracker only edits comments Shopfloor wrote.
+- Slack crews must set `chat.tokenFile`; a config without it now fails validation instead of failing on first use.
+- CI runs on Ubuntu only. Run the suite on a Mac before relying on macOS behaviour.
+
+### Fixed
+
+- `shopfloor install` no longer fails with `Bootstrap failed: 5` when the board is already running.
 
 ## [0.2.1] - 2026-11-17
 
@@ -47,7 +61,8 @@ The first public release.
 - `shopfloor init`, `doctor` (with `--live` and `--repair-tamper`), `secret`, `install`, `uninstall`, `run`, `status` and `board`.
 - Schedules through launchd on macOS and systemd on Linux.
 
-[Unreleased]: https://github.com/afvr94/shopfloor/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/afvr94/shopfloor/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/afvr94/shopfloor/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/afvr94/shopfloor/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/afvr94/shopfloor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/afvr94/shopfloor/releases/tag/v0.1.0
