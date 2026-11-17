@@ -27,9 +27,8 @@
     "mayMove": ["todo->inProgress", "inProgress->review"]
   },
   "chat": {
-    "type": "slack",
-    "tokenFile": "~/.shopfloor/secrets/slack",
-    "slack": {"channel": "C0123", "ownerUserId": "U0123"}
+    "type": "github",
+    "github": {"owner": "your-login"}
   },
   "gitFlow": {"type": "pr-only", "testBranch": null, "mergeDenyPaths": []},
   "policyPacks": [],

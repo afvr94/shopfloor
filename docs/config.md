@@ -92,12 +92,14 @@ Ticket keys for GitHub are `GH-<number>` and branches are `shopfloor/gh-42-<slug
 | --- | --- | --- | --- |
 | `chat` | object | required | Where the crew talks to you. |
 | `chat.type` | string | required | `"slack"` or `"github"`. `"github"` needs `tracker.type` `"github"`. |
-| `chat.tokenFile` | string | required for slack | Path to the file holding the bot token: `0400` (as `init` writes it) or `0600`. |
+| `chat.tokenFile` | string | required for `slack`, refused for `github` | Path to the file holding the bot token: `0400` (as `init` writes it) or `0600`. |
 | `chat.slack` | object | | Slack settings. |
 | `chat.slack.channel` | string | required | Channel ID where ticket threads are opened. |
 | `chat.slack.ownerUserId` | string | required | Member ID of the only user whose replies count. |
-| `chat.github` | object | | GitHub chat settings. |
-| `chat.github.owner` | string | required | GitHub login of the only user whose comments count. |
+| `chat.github` | object | | GitHub chat settings, used when `chat.type` is `"github"`. The crew's comments go on the ticket's issue. |
+| `chat.github.owner` | string | required | GitHub login of the only user whose comments count. Comments from anyone else are ignored. |
+
+A `github` chat has no token file; it posts with your `gh` login. See [setup-github-chat.md](setup-github-chat.md).
 
 ### `gitFlow`
 

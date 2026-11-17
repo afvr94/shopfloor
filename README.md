@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/runs%20on-macOS%20%7C%20Linux-lightgrey.svg" alt="macOS and Linux">
 </p>
 
-Shopfloor runs crews of [Claude Code](https://docs.claude.com/en/docs/claude-code) sessions on your own machine. Put the `shopfloor` label on a Linear ticket or GitHub issue and a crew picks it up, plans it in a Slack thread, builds it in its own clone of your repo, opens a pull request and keeps it moving until it lands. You steer from the thread. Every pull request comes with a briefing page that explains the change to you, so you stay on top of code you didn't write.
+Shopfloor runs crews of [Claude Code](https://docs.claude.com/en/docs/claude-code) sessions on your own machine. Put the `shopfloor` label on a Linear ticket or GitHub issue and a crew picks it up, plans it in a Slack thread or on the GitHub issue, builds it in its own clone of your repo, opens a pull request and keeps it moving until it lands. You steer from the thread. Every pull request comes with a briefing page that explains the change to you, so you stay on top of code you didn't write.
 
 No server, no SaaS, no dependencies: plain Python standard library plus Claude Code skills. A crew wakes on a schedule (launchd on macOS, systemd on Linux), does one round of work and exits.
 
@@ -23,7 +23,7 @@ No server, no SaaS, no dependencies: plain Python standard library plus Claude C
 flowchart LR
     A["Linear ticket or GitHub issue<br/>labeled shopfloor"] --> B["Crew claims it<br/>and plans"]
     B --> C{"Needs a decision?"}
-    C -- yes --> D["Asks in the Slack thread<br/>with a recommended answer"]
+    C -- yes --> D["Asks in the Slack thread<br/>or issue comments with a recommended answer"]
     D --> B
     C -- no --> E["Builds and tests in a<br/>sandboxed clone"]
     E --> F["Opens the pull request<br/>and writes a briefing"]
@@ -78,7 +78,7 @@ Crews run unattended with your credentials, so the defaults are strict. [docs/SA
 
 You need macOS or Linux, Python 3.10+, `git`, [`gh`](https://cli.github.com) logged in, and Claude Code logged in. On Linux the sandbox also needs `bubblewrap` and `socat`.
 
-1. **Set up a crew.** The wizard asks for a crew id, your tracker (Linear or GitHub Issues), Slack channel and repo, stores your tokens in locked files under `~/.shopfloor/secrets`, and installs the schedule and the board.
+1. **Set up a crew.** The wizard asks for a crew id, your tracker (Linear or GitHub Issues), chat (Slack, or GitHub comments with the GitHub tracker) and repo, stores your tokens in locked files under `~/.shopfloor/secrets`, and installs the schedule and the board.
 
    ```sh
    git clone https://github.com/afvr94/shopfloor
@@ -86,7 +86,7 @@ You need macOS or Linux, Python 3.10+, `git`, [`gh`](https://cli.github.com) log
    bin/shopfloor init
    ```
 
-   Have a Linear API key ([setup](docs/setup-linear.md)) or your `gh` login for GitHub Issues ([setup](docs/setup-github-issues.md)), and a Slack bot token, channel ID and your member ID ([setup](docs/setup-slack.md)) ready. The Slack app comes from [a manifest](examples/slack-app-manifest.json).
+   Have a Linear API key ([setup](docs/setup-linear.md)) or your `gh` login for GitHub Issues ([setup](docs/setup-github-issues.md)), and, for Slack chat, a bot token, channel ID and your member ID ([setup](docs/setup-slack.md)) ready. The Slack app comes from [a manifest](examples/slack-app-manifest.json). With the GitHub tracker you can skip Slack and chat in issue comments ([setup](docs/setup-github-chat.md)).
 
 2. **Check everything.**
 
@@ -102,7 +102,7 @@ You need macOS or Linux, Python 3.10+, `git`, [`gh`](https://cli.github.com) log
    bin/shopfloor run <crew-id>
    ```
 
-4. **Watch it work** in the ticket's Slack thread and on the board at <http://127.0.0.1:7420>.
+4. **Watch it work** in the ticket's Slack thread or issue comments and on the board at <http://127.0.0.1:7420>.
 
 5. **Go live** when the dry run looks right: set `"dryRun": false` in `~/.shopfloor/crews/<crew-id>.json`. Tickets the dry run already took stay where it left them; reply `retry` in a thread to build one for real.
 
@@ -111,10 +111,10 @@ You need macOS or Linux, Python 3.10+, `git`, [`gh`](https://cli.github.com) log
 | Command | What it does |
 | --- | --- |
 | `shopfloor init` | Setup wizard for one crew. |
-| `shopfloor doctor [crew]` | Check tools, sandbox support, secrets, Linear, Slack, repos and branch protection. |
+| `shopfloor doctor [crew]` | Check tools, sandbox support, secrets, Linear, Slack or GitHub chat, repos and branch protection. |
 | `shopfloor doctor --live [crew]` | Also start one real sandboxed crew session in a temp folder (uses your Claude plan). |
 | `shopfloor doctor --repair-tamper <crew>` | Clear a crew's tamper markers once you have checked the records they name (see [SAFETY.md](docs/SAFETY.md) section 4). |
-| `shopfloor secret <crew> tracker\|chat` | Replace a crew's Linear or Slack token (asks for it hidden). |
+| `shopfloor secret <crew> tracker\|chat` | Replace a crew's Linear or Slack token (not GitHub chat, which has none) (asks for it hidden). |
 | `shopfloor install [crew]` | Install the board service and each crew's schedule. |
 | `shopfloor uninstall` | Remove the installed services. |
 | `shopfloor run <crew>` | Run one round now. |
@@ -134,8 +134,8 @@ engine/            the Claude Code plugin a crew runs with
   skills/          tick, spec, build, watch and the ground rules
   lib/             sf, state, signing, transport, briefings, lessons
   hooks/           the command guard
-  adapters/        Linear, Slack, and the three git flows
-board/             the local board, briefing pages and the Slack listener
+  adapters/        Linear, GitHub Issues, Slack, GitHub comments, and the three git flows
+board/             the local board, briefing pages and the chat listener
 docs/              safety model, config reference, setup guides
 ```
 
@@ -145,7 +145,7 @@ Run the tests with a throwaway home so nothing touches your real setup:
 HOME=$(mktemp -d) SHOPFLOOR_HOME=$(mktemp -d)/sf python3 -m unittest
 ```
 
-Shopfloor starts with Linear or GitHub Issues, and Slack. The tracker, chat and git flow sit behind small adapters in `engine/adapters/`, so others can be added without touching a crew's skills.
+Shopfloor starts with Linear or GitHub Issues, and Slack or GitHub comments. The tracker, chat and git flow sit behind small adapters in `engine/adapters/`, so others can be added without touching a crew's skills.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the tests, the guard's test table and how to add an adapter. Report security problems privately, as [SECURITY.md](SECURITY.md) explains. Releases are in [CHANGELOG.md](CHANGELOG.md).
 
