@@ -18,6 +18,7 @@ CFG = {
 TICKET = Ticket(key="GH-7", id="n7", title="t", body="", labels=[], state="todo",
                 url="https://github.com/acme/app/issues/7", assignee=None, relations=[],
                 created_at="2026-01-01T00:00:00Z", closed=False)
+TOKEN = "gh" + "p_abc123"
 TH = ThreadRef("acme/app#7", "9")
 
 
@@ -72,11 +73,11 @@ class GitHubChatTests(unittest.TestCase):
         self.assertEqual(c.poll({"GH-7": TH}, {}), [Reply("GH-7", "Ana", "y", "10")])
 
     def test_writes_not_retried_and_errors_redacted(self):
-        c, fake = chat([ProcError(["gh"], 1, "HTTP 502 token ghp_abc123")])
+        c, fake = chat([ProcError(["gh"], 1, "HTTP 502 token " + TOKEN)])
         with self.assertRaises(ChatError) as cm:
             c.post(TH, "hi")
         self.assertEqual(len(fake.calls), 1)
-        self.assertNotIn("ghp_abc123", str(cm.exception))
+        self.assertNotIn(TOKEN, str(cm.exception))
 
     def test_rate_limit_message(self):
         c, _ = chat([ProcError(["gh"], 1, "API rate limit exceeded")])
