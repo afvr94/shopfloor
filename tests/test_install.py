@@ -46,6 +46,31 @@ class Install(unittest.TestCase):
         self.assertEqual(self.calls[-1], ["launchctl", "bootstrap", f"gui/{uid}", str(path)])
         self.assertEqual(self.calls[0][:2], ["launchctl", "bootout"])
 
+    def test_darwin_retries_bootstrap_while_the_old_service_stops(self):
+        # bootout returns before launchd has torn a KeepAlive service down; bootstrap then fails with EIO
+        self.at("darwin")
+        fails = [install.proc.ProcError(["launchctl"], 5, "Bootstrap failed: 5: Input/output error")] * 2
+
+        def runner(argv, **kw):
+            self.calls.append(argv)
+            if argv[1] == "bootstrap" and fails:
+                raise fails.pop()
+            return ""
+        with mock.patch.object(install.time, "sleep") as sleep:
+            install.install_crew(CREW, runner=runner)
+        self.assertEqual([c[1] for c in self.calls], ["bootout", "bootstrap", "bootstrap", "bootstrap"])
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_darwin_bootstrap_gives_up_after_retries(self):
+        self.at("darwin")
+
+        def runner(argv, **kw):
+            if argv[1] == "bootstrap":
+                raise install.proc.ProcError(["launchctl"], 5, "Bootstrap failed: 5: Input/output error")
+            return ""
+        with mock.patch.object(install.time, "sleep"), self.assertRaises(install.proc.ProcError):
+            install.install_crew(CREW, runner=runner)
+
     def test_darwin_board_and_prefix(self):
         self.at("darwin")
         (path,) = install.install_board({"labelPrefix": "x.y"}, runner=self.runner)
