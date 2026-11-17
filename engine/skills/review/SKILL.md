@@ -9,7 +9,7 @@ Load `/shopfloor:rules` first. Input is a ticket key whose branch is committed a
 
 ## 1. Scope
 1. `sf ticket show <KEY>` for the repo, `branch` and `dir`; `sf config` for the repo's base branch.
-2. In the worktree, `git diff --name-only origin/<base>...HEAD` lists the changed files. If it is empty, there is nothing to review: stop.
+2. In the worktree, `git diff --name-only origin/<base>...HEAD` lists the changed files. If it is empty, write `<dir>/review.md` saying there was nothing to review, and stop.
 3. Note the repo's own test and lint commands, the ones you ran while building.
 
 ## 2. Passes
@@ -26,6 +26,7 @@ Run each pass in a fresh Agent, in the foreground. The brief is all the context 
 - the worktree path, `origin/<base>...HEAD` as the diff to review, and the changed-file list
 - the pass's row from the table above, as the only thing to look for
 - "Read the code around the diff, not only the diff. Fix the findings you accept in the working tree. Do not commit, and do not touch files outside the worktree."
+- "Follow section 7 of `/shopfloor:rules` and these policy packs", with the `policyPacks` paths from `sf config`. "If a finding hits a deal breaker in `/shopfloor:rules`, report it, do not fix it, and do not ask the owner yourself."
 - one line per fix earlier passes made, so this pass does not undo one without saying why. Never their opinions or "nothing found" verdicts.
 - "Reply with each finding marked fixed, skipped with the reason, or no change needed."
 
@@ -34,8 +35,8 @@ Do not put your own view of the code in the brief; an agent handed a conclusion 
 A finding that hits a deal breaker in `/shopfloor:rules` is not fixed in the pass: stop and `sf chat ask`, and leave the worktree as it is.
 
 ## 3. After each pass that changed files
-1. Run the repo's tests and lint. If they fail, fix the failure or `git restore` that pass's edits. Never carry a red tree into the next pass.
-2. Commit the pass on its own with `git commit -m`, a Conventional Commit with the ticket key as scope, for example `refactor(<KEY>): simplify per review`. No attribution or sign-off lines.
+1. Run the repo's tests and lint. If they fail, fix the failure, or `git restore` that pass's edits and `rm` the files it added. Never carry a red tree into the next pass.
+2. `git add` the pass's files and commit them on their own with `git commit -m`, a Conventional Commit with the ticket key as scope, for example `refactor(<KEY>): simplify per review`. No attribution or sign-off lines.
 
 ## 4. Record
 Run the repo's full tests and lint once more. Write `<dir>/review.md`: one line per pass with its outcome (`fixed`, `no change needed` or `skipped` and why), then the findings skipped on purpose and why. The build skill uses it for the PR body and the briefing's risk.

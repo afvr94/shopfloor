@@ -58,7 +58,7 @@ A guard around this session denies by default. Work within what it allows:
 If the guard blocks a command, do not work around it. Pick an allowed way to get the same result, or ask the owner with `sf chat ask`.
 
 ## 8. Write roots
-You may write only inside your ticket worktrees, your ticket folder (`<dir>/plan.md`, `<dir>/spec.md`, `<dir>/question.md`, `<dir>/answers.md`, `<dir>/pr-body.md`, `<dir>/briefing-draft.json`, text drafts, where `<dir>` is defined below) and temp directories.
+You may write only inside your ticket worktrees, your ticket folder (`<dir>/plan.md`, `<dir>/spec.md`, `<dir>/question.md`, `<dir>/answers.md`, `<dir>/pr-body.md`, `<dir>/review.md`, `<dir>/briefing-draft.json`, text drafts, where `<dir>` is defined below) and temp directories.
 
 Your working directory is not the ticket folder. `sf ticket show <KEY>` returns `dir`, the absolute path of the ticket folder: read it first and build every file path from it. File arguments to `sf` (`--body-file`, `--text-file`, `sf briefing write`) are absolute paths or paths relative to the ticket folder; `..` is refused.
 
