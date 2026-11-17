@@ -1,6 +1,6 @@
 ---
 name: build
-description: Builds one Shopfloor ticket from its plan or spec in its own clone of the repo, runs the repo's own checks, commits, opens the pull request, writes the briefing, and moves the ticket to review. Use for "/shopfloor:build <KEY>".
+description: Builds one Shopfloor ticket from its plan or spec in its own clone of the repo, runs the repo's own checks, commits, reviews its own diff, opens the pull request, writes the briefing, and moves the ticket to review. Use for "/shopfloor:build <KEY>".
 ---
 
 # Shopfloor build
@@ -21,14 +21,17 @@ Load `/shopfloor:rules` first. Input is a ticket key. Work only in the ticket's 
 ## 3. Commit
 Small commits on your branch with Conventional Commit messages that carry the ticket key as scope, for example `feat(ENG-12): add rate limit`. Use `git commit -m` or `-F`. No attribution or sign-off lines of any kind. Then bring in the latest base: `sf sync <KEY> <repo>` fetches origin outside the sandbox and writes `<dir>/in-<repo>.bundle`; in the worktree run `git fetch <dir>/in-<repo>.bundle '+refs/heads/*:refs/remotes/origin/*'`, then `git rebase origin/<base>`. On conflicts, resolve each file, `git add` it and `git rebase --continue`.
 
-## 4. Ship
-1. Write the PR body to `<dir>/pr-body.md`: what changed and why, how it was checked. No ticket text beyond the title, no secrets.
+## 4. Review
+Run `/shopfloor:review <KEY>`. It reviews the branch in passes, fixes and commits what it accepts, and writes `<dir>/review.md`. If it stopped on a deal breaker, stop here too.
+
+## 5. Ship
+1. Write the PR body to `<dir>/pr-body.md`: what changed and why, how it was checked, including the review outcomes from `<dir>/review.md`. No ticket text beyond the title, no secrets.
 2. Hand your branch to `sf`: `git bundle create <dir>/out-<repo>.bundle <branch>`, with the branch name `sf ticket show` reports.
 3. `sf ship <KEY> <repo> --title "<type>(<KEY>): <summary>" --body-file <dir>/pr-body.md`. It pushes that branch from the bundle and opens the PR. Never push or open a PR any other way.
 
-## 5. Briefing
+## 6. Briefing
 The owner did not write this code and needs to understand it fast. Write `<dir>/briefing-draft.json` from the final diff and the code around it:
-- `title`, `whatWhy` (what changed and why, the root cause if it was a bug), `risk`
+- `title`, `whatWhy` (what changed and why, the root cause if it was a bug), `risk` (including review findings skipped on purpose)
 - `how`: steps of how the changed path works now
 - `verify`: how to check it
 - `files`: the files changed
@@ -38,11 +41,11 @@ The owner did not write this code and needs to understand it fast. Write `<dir>/
 
 Title only from the ticket, no secrets, no personal data. Never put the briefing in the PR description. Then `sf briefing write <KEY> <dir>/briefing-draft.json` and `sf briefing url <KEY>`. `sf` validates the draft and writes `briefing.json` itself; never write `briefing.json` directly.
 
-## 6. Hand over
+## 7. Hand over
 1. `sf tracker transition <KEY> review`
 2. `sf tracker link-pr <KEY> <pr-url>`
 3. `sf chat post <KEY> --text-file <dir>/<file>` with the PR link and the briefing link.
 4. `sf ticket set <KEY> --stage in_review`
 
 ## Dry run
-`sf ship` and the tracker commands print `dry-run: would ...` and change nothing. Still build, check and commit in the worktree. Post the diff stat and every "would" line in the thread, set the stage to `in_review` with no PR, and stop. Do not retry.
+`sf ship` and the tracker commands print `dry-run: would ...` and change nothing. Still build, check, commit and review in the worktree. Post the diff stat and every "would" line in the thread, set the stage to `in_review` with no PR, and stop. Do not retry.

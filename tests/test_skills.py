@@ -8,7 +8,7 @@ from pathlib import Path
 from engine.lib.cli import _parser
 
 SKILLS = Path(__file__).resolve().parent.parent / "engine" / "skills"
-NAMES = ("rules", "tick", "spec", "build", "watch")
+NAMES = ("rules", "tick", "spec", "build", "review", "watch")
 BANNED = ("pstack", "superpowers", "ponytail", "ecc:",
           "bash ", "python3 -c", "node -e")
 DEAL_BREAKERS = (
@@ -104,9 +104,17 @@ class Skills(unittest.TestCase):
         self.assertIn("sf briefing write <KEY> <dir>/briefing-draft.json", build)
         self.assertNotIn("Write `<dir>/briefing.json`", build)
 
+    def test_build_reviews_its_diff_before_shipping(self):
+        t = _texts()
+        build = t["build"]
+        self.assertLess(build.index("/shopfloor:review <KEY>"), build.index("sf ship <KEY>"))
+        self.assertIn("<dir>/review.md", build)
+        self.assertIn("<dir>/review.md", t["review"])
+        self.assertNotIn("sf ship", t["review"])
+
     def test_crews_reach_github_only_through_sf(self):
         t = _texts()
-        for n in ("watch", "build", "tick", "spec"):
+        for n in ("watch", "build", "review", "tick", "spec"):
             for word in ("`gh ", "git push", "git fetch origin", "git pull"):
                 self.assertNotIn(word, t[n], f"{n}: {word}")
         for cmd in ("sf pr view <KEY>", "sf pr log <KEY>", "sf pr reply <KEY>", "sf push <KEY>", "sf sync <KEY>"):
