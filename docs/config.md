@@ -63,9 +63,9 @@ Required for `shopfloor install` to install the crew's timer.
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `tracker` | object | required | Ticket source. |
-| `tracker.type` | string | required | Must be `"linear"`. |
-| `tracker.tokenFile` | string | required | Path to the file holding the Linear API key: `0400` (as `init` writes it) or `0600`. |
-| `tracker.mayMove` | string[] | none | Allowed state moves as `from->to`, both keys of `tracker.linear.states`. |
+| `tracker.type` | string | required | `"linear"` or `"github"`. Only the block of the active type is validated. |
+| `tracker.tokenFile` | string | required for `linear` | Path to the file holding the Linear API key: `0400` (as `init` writes it) or `0600`. |
+| `tracker.mayMove` | string[] | none | Allowed state moves as `from->to`, both keys of `tracker.linear.states` for `linear`, or both of `todo`, `inProgress`, `review` for `github`. |
 | `tracker.linear` | object | | Linear settings. |
 | `tracker.linear.team` | string | required | Team key, such as `ENG`. |
 | `tracker.linear.label` | string | `"shopfloor"` | Opt-in label (case-insensitive). |
@@ -75,6 +75,14 @@ Required for `shopfloor install` to install the crew's timer.
 | `tracker.linear.states.todo` | string | required | State where new work waits. |
 | `tracker.linear.states.inProgress` | string | required | State for work in progress. |
 | `tracker.linear.states.review` | string | required | State once a pull request is open. |
+| `tracker.github` | object | | GitHub Issues settings, used when `tracker.type` is `"github"`. |
+| `tracker.github.repo` | string | required | `owner/name` of the repo whose issues the crew works. |
+| `tracker.github.label` | string | `"shopfloor"` | Opt-in label (case-insensitive). |
+| `tracker.github.holdLabels` | string[] | `["hold"]` | An issue with any of these labels is left alone. |
+| `tracker.github.assignee` | string or null | `null` | `null` for anyone, or a GitHub login. |
+| `tracker.github.states` | object | | Labels that mark the stages an issue passes through. |
+| `tracker.github.states.inProgress` | string | `"shopfloor:in-progress"` | Label for work in progress. |
+| `tracker.github.states.review` | string | `"shopfloor:review"` | Label once a pull request is open. |
 
 ### `chat`
 
