@@ -2,7 +2,7 @@
 
 Shopfloor reads issues and writes comments and labels through `gh api`. It uses the same `gh` login that `sf` uses to push branches and open pull requests, so there is no token file to create.
 
-Slack is still required. Crews talk to you in a Slack thread, whichever tracker they read from. See [setup-slack.md](setup-slack.md).
+A GitHub crew can also use the issue's comments as its chat, so a GitHub account is all it needs. See [setup-github-chat.md](setup-github-chat.md). Slack still works with either tracker; see [setup-slack.md](setup-slack.md).
 
 ## 1. Log in with gh
 

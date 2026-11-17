@@ -213,11 +213,16 @@ class SfTest(SfCase):
         self.assertEqual(state.load_ticket("demo", "ENG-1")["prs"],
                          [{"repo": "app", "number": 7, "url": "https://github.com/o/app/pull/7"}])
 
-    def test_ticket_set_parses_json_fields(self):
-        code, _, _ = self.sf("ticket", "set", "ENG-1", "--stage", "building", "--field", 'thread={"ts":"1"}')
+    def test_ticket_set_parses_fields(self):
+        code, _, _ = self.sf("ticket", "set", "ENG-1", "--stage", "building", "--field", "fixRounds=2")
         t = state.load_ticket("demo", "ENG-1")
-        self.assertEqual((code, t["stage"], t["thread"]), (0, "building", {"ts": "1"}))
+        self.assertEqual((code, t["stage"], t["fixRounds"]), (0, "building", 2))
         self.assertEqual(self.sf("ticket", "set", "ENG-1", "--field", "bogus=1")[0], 1)
+
+    def test_ticket_set_never_takes_the_thread(self):
+        code, _, err = self.sf("ticket", "set", "ENG-1", "--field", 'thread={"channel":"x/y#1","ts":"0"}')
+        self.assertEqual((code, state.load_ticket("demo", "ENG-1")["thread"]), (1, None))
+        self.assertIn("sf chat open records", err)
 
     def test_ticket_set_never_takes_the_prs(self):
         code, _, err = self.sf("ticket", "set", "ENG-1", "--field", 'prs=[{"repo":"app","number":1,"url":"u"}]')

@@ -13,6 +13,10 @@ from engine.lib import config, paths, proc, state
 DOCS = ("docs/setup-linear.md", "docs/setup-slack.md", "examples/slack-app-manifest.json")
 
 
+def gh_login() -> str:
+    return proc.run(["gh", "api", "user", "--jq", ".login"]).strip()
+
+
 def write_secret(path: Path, value: str) -> None:
     """Written 0400 into the secrets folder, which is open (0700) only for this write and 0500 again after."""
     state.atomic_write(path, value + "\n")
@@ -28,8 +32,8 @@ def read_secret(secret, prompt: str) -> str:
 
 def replace_secret(crew_id: str, which: str, secret=getpass.getpass) -> None:
     cfg = config.load_crew(crew_id)[which]
-    if which == "tracker" and cfg["type"] == "github":
-        raise ValueError("this crew's tracker uses your gh login; run gh auth login to change it")
+    if cfg["type"] == "github":
+        raise ValueError(f"this crew's {which} uses your gh login; run gh auth login to change it")
     write_secret(Path(cfg["tokenFile"]), read_secret(secret, f"New {cfg['type']} token (hidden): "))
 
 
@@ -46,8 +50,10 @@ def ensure_dirs(crew_id: str) -> None:
         state.make_dir(paths.crew_state_dir(crew_id) / d)
 
 
-def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, deps=None, make_label=None) -> int:
+def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, deps=None, make_label=None,
+               whoami=None) -> int:
     make_label = make_label or create_label
+    whoami = whoami or gh_login
 
     def q(prompt: str, default: str = "") -> str:
         return ask(f"{prompt}{f' [{default}]' if default else ''}: ").strip() or default
@@ -58,8 +64,15 @@ def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, 
     if ttype not in ("linear", "github"):
         out("Tracker must be linear or github.")
         return 1
+    ctype = q("Chat (slack/github)", "github") if ttype == "github" else "slack"
+    if ctype not in ("slack", "github"):
+        out("Chat must be slack or github.")
+        return 1
     tracker_doc = DOCS[0] if ttype == "linear" else "docs/setup-github-issues.md"
-    out(f"Tracker and Slack setup: {tracker_doc}, {DOCS[1]} (Slack app manifest: {DOCS[2]})")
+    if ctype == "github":
+        out(f"Tracker and chat setup: {tracker_doc}, docs/setup-github-chat.md")
+    else:
+        out(f"Tracker and Slack setup: {tracker_doc}, {DOCS[1]} (Slack app manifest: {DOCS[2]})")
     repo = q("Repo name", "app")
     github, base = q("GitHub repo (owner/name)"), q("Base branch", "main")
     local = q("Local path to the checkout")
@@ -75,7 +88,15 @@ def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, 
         tracker = {"type": "linear", "tokenFile": str(paths.shopfloor_home() / "secrets" / f"{cid}-linear"),
                    "linear": {"team": team, "label": label, "states": states},
                    "mayMove": ["todo->inProgress", "inProgress->review"]}
-    channel, owner = q("Slack channel id"), q("Slack owner user id")
+    if ctype == "github":
+        try:
+            guess = whoami()
+        except (proc.ProcError, OSError):
+            guess = ""
+        chat = {"type": "github", "github": {"owner": q("GitHub owner login", guess)}}
+    else:
+        chat = {"type": "slack", "tokenFile": str(paths.shopfloor_home() / "secrets" / f"{cid}-slack"),
+                "slack": {"channel": q("Slack channel id"), "ownerUserId": q("Slack owner user id")}}
     try:
         every = int(q("Run every N hours", "3"))
     except ValueError:
@@ -83,14 +104,12 @@ def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, 
     sched = {"start": q("First run (HH:MM)", "07:00"), "until": q("Last run (HH:MM)", "22:00"),
              "everyHours": every, "weekdaysOnly": q("Weekdays only (y/n)", "y") == "y"}
 
-    secrets = paths.shopfloor_home() / "secrets"
     cfg = {
         "id": cid, "dryRun": True, "schedule": sched,
         "repos": {repo: {"github": github, "base": base, "path": local}},
         "protectedBranches": sorted({"main", "master", base}),
         "tracker": tracker,
-        "chat": {"type": "slack", "tokenFile": str(secrets / f"{cid}-slack"),
-                 "slack": {"channel": channel, "ownerUserId": owner}},
+        "chat": chat,
     }
     errs = config.validate(cfg)
     if errs:
@@ -102,7 +121,8 @@ def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, 
         return 1
     if ttype == "linear":
         write_secret(Path(cfg["tracker"]["tokenFile"]), read_secret(secret, "Linear API key (hidden): "))
-    write_secret(Path(cfg["chat"]["tokenFile"]), read_secret(secret, "Slack bot token (hidden): "))
+    if ctype == "slack":
+        write_secret(Path(chat["tokenFile"]), read_secret(secret, "Slack bot token (hidden): "))
     state.atomic_write(crew_file, json.dumps(cfg, indent=2) + "\n")
     board_file = paths.shopfloor_home() / "board.json"
     board = json.loads(board_file.read_text()) if board_file.exists() else {}

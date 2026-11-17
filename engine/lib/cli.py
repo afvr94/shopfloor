@@ -19,6 +19,7 @@ from engine.adapters.tracker import make_tracker
 from engine.adapters.tracker.base import TrackerError, state_key
 from engine.lib import briefing, config, crewfs, gitsafe, lessons, paths, state, transport, worktrees
 from engine.lib.commands import CommandQueue, CommandQueueError
+from engine.lib.config import sign
 from engine.lib.proc import ProcError
 from engine.lib.redact import redact
 
@@ -38,10 +39,6 @@ class Refused(Exception):
 
 class Usage(Exception):
     pass
-
-
-def sign(body: str, voice_name: str) -> str:
-    return f"{body}\n\n— {voice_name}" + ("" if voice_name == "Shopfloor" else ", a Shopfloor crew")
 
 
 def _out(obj) -> None:
@@ -210,7 +207,9 @@ def h_ticket_set(a, cfg):
             raise Refused("sf picks the ticket branch at sf worktree prepare; read it from sf ticket show")
         if name == "prs":
             raise Refused("sf ship records the ticket's PRs; read them from sf ticket show")
-        changes[name] = json.loads(value) if name == "thread" else int(value) if name == "fixRounds" else value
+        if name == "thread":
+            raise Refused("sf chat open records the ticket's thread; read it from sf ticket show")
+        changes[name] = int(value) if name == "fixRounds" else value
     if a.stage:
         changes["stage"] = a.stage
     if not changes:

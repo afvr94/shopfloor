@@ -4,6 +4,10 @@ All notable changes to Shopfloor are listed here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- GitHub issue comments as the crew's chat: with the GitHub tracker, a crew needs only a GitHub account. See [docs/setup-github-chat.md](docs/setup-github-chat.md).
+
 ## [0.2.1] - 2026-11-17
 
 ### Fixed

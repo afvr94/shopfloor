@@ -213,7 +213,8 @@ class Init(Base):
         again.install_crew.assert_not_called()
 
     def test_github_wizard_writes_no_token_and_creates_the_labels(self):
-        answers = {**self.ANSWERS, "tracker (linear/github)": "github", "issues repo": "acme/app", "create the shopfloor labels": "y"}
+        answers = {**self.ANSWERS, "tracker (linear/github)": "github", "chat (slack/github)": "slack",
+                   "issues repo": "acme/app", "create the shopfloor labels": "y"}
         made, out = [], []
         secret = mock.Mock(side_effect=["xoxb-" + "TOK"])
         with mock.patch.object(init.doctor, "check_all", return_value=[(True, "x", "")]):
@@ -231,7 +232,8 @@ class Init(Base):
         self.assertFalse((paths.shopfloor_home() / "secrets" / "demo-linear").exists())
 
     def test_github_wizard_survives_a_failing_label_creator_and_prints_the_manual_command(self):
-        answers = {**self.ANSWERS, "tracker (linear/github)": "github", "issues repo": "acme/app"}
+        answers = {**self.ANSWERS, "tracker (linear/github)": "github", "chat (slack/github)": "slack",
+                   "issues repo": "acme/app"}
         for exc in (init.proc.ProcError(["gh"], 1, "boom"), FileNotFoundError("gh")):
             with self.subTest(exc=type(exc).__name__):
                 shutil.rmtree(paths.shopfloor_home(), ignore_errors=True)
@@ -263,6 +265,40 @@ class Init(Base):
         with self.assertRaisesRegex(ValueError, "uses your gh login"):
             init.replace_secret("demo", "tracker", secret=secret)
         secret.assert_not_called()
+
+    def test_github_chat_wizard_uses_the_gh_login_and_writes_no_tokens(self):
+        answers = {**self.ANSWERS, "tracker (linear/github)": "github", "issues repo": "acme/app"}
+        prompts, out = [], []
+
+        def ask(p):
+            prompts.append(p)
+            return next((v for k, v in answers.items() if k in p.lower()), "")
+        secret = mock.Mock()
+        with mock.patch.object(init.doctor, "check_all", return_value=[(True, "x", "")]):
+            code = init.run_wizard(ask=ask, out=out.append, secret=secret, installer=self.installer(),
+                                   make_label=lambda *a: None, whoami=lambda: "octo")
+        self.assertEqual(code, 0)
+        self.assertIn("Chat (slack/github) [github]: ", prompts)
+        self.assertIn("GitHub owner login [octo]: ", prompts)
+        self.assertFalse(any("slack" in p.lower() and "slack/github" not in p.lower() for p in prompts), prompts)
+        secret.assert_not_called()
+        raw = json.loads(paths.crew_config_path("demo").read_text())
+        self.assertEqual(raw["chat"], {"type": "github", "github": {"owner": "octo"}})
+        self.assertEqual(config.validate(raw), [])
+        self.assertFalse((paths.shopfloor_home() / "secrets").exists())
+        self.assertIn("docs/setup-github-chat.md", "\n".join(out))
+
+    def test_secret_refuses_a_github_chat(self):
+        raw = json.loads(json.dumps(CREW))
+        raw["tracker"] = {"type": "github", "github": {"repo": "acme/app"}, "mayMove": []}
+        raw["chat"] = {"type": "github", "github": {"owner": "octo"}}
+        (paths.shopfloor_home() / "crews").mkdir(parents=True)
+        paths.crew_config_path("demo").write_text(json.dumps(raw))
+        secret = mock.Mock()
+        with self.assertRaisesRegex(ValueError, r"^this crew's chat uses your gh login; run gh auth login to change it$"):
+            init.replace_secret("demo", "chat", secret=secret)
+        secret.assert_not_called()
+        self.assertFalse((paths.shopfloor_home() / "secrets").exists())
 
     def test_secret_replaces_a_token_and_keeps_it_locked(self):
         self.assertEqual(self.wizard(self.installer())[0], 0)
