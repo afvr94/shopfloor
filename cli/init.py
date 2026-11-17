@@ -3,10 +3,12 @@ from __future__ import annotations
 import getpass
 import json
 import os
+import shlex
 from pathlib import Path
 
 from cli import doctor, install
-from engine.lib import config, paths, state
+from engine.adapters.tracker.base import settings
+from engine.lib import config, paths, proc, state
 
 DOCS = ("docs/setup-linear.md", "docs/setup-slack.md", "examples/slack-app-manifest.json")
 
@@ -26,7 +28,17 @@ def read_secret(secret, prompt: str) -> str:
 
 def replace_secret(crew_id: str, which: str, secret=getpass.getpass) -> None:
     cfg = config.load_crew(crew_id)[which]
+    if which == "tracker" and cfg["type"] == "github":
+        raise ValueError("this crew's tracker uses your gh login; run gh auth login to change it")
     write_secret(Path(cfg["tokenFile"]), read_secret(secret, f"New {cfg['type']} token (hidden): "))
+
+
+def label_argv(repo: str, name: str, color: str) -> list[str]:
+    return ["gh", "label", "create", "--color", color, "--force", "--repo", repo, "--", name]
+
+
+def create_label(repo: str, name: str, color: str) -> None:
+    proc.run(label_argv(repo, name, color))
 
 
 def ensure_dirs(crew_id: str) -> None:
@@ -34,20 +46,36 @@ def ensure_dirs(crew_id: str) -> None:
         state.make_dir(paths.crew_state_dir(crew_id) / d)
 
 
-def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, deps=None) -> int:
+def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, deps=None, make_label=None) -> int:
+    make_label = make_label or create_label
+
     def q(prompt: str, default: str = "") -> str:
         return ask(f"{prompt}{f' [{default}]' if default else ''}: ").strip() or default
 
     out("Shopfloor setup. New crews start in dry run; this wizard never turns it off.")
-    out(f"Linear and Slack setup: {DOCS[0]}, {DOCS[1]} (Slack app manifest: {DOCS[2]})")
     cid = q("Crew id", "demo")
-    team, label = q("Linear team key"), q("Opt-in label", "shopfloor")
-    states = {"todo": q("Linear state for new work", "Todo"), "inProgress": q("Linear in-progress state", "In Progress"),
-              "review": q("Linear in-review state", "In Review")}
-    channel, owner = q("Slack channel id"), q("Slack owner user id")
+    ttype = q("Tracker (linear/github)", "linear")
+    if ttype not in ("linear", "github"):
+        out("Tracker must be linear or github.")
+        return 1
+    tracker_doc = DOCS[0] if ttype == "linear" else "docs/setup-github-issues.md"
+    out(f"Tracker and Slack setup: {tracker_doc}, {DOCS[1]} (Slack app manifest: {DOCS[2]})")
     repo = q("Repo name", "app")
     github, base = q("GitHub repo (owner/name)"), q("Base branch", "main")
     local = q("Local path to the checkout")
+    label = q("Opt-in label", "shopfloor")
+    if ttype == "github":
+        tracker = {"type": "github", "github": {"repo": q("Issues repo (owner/name)", github), "label": label},
+                   "mayMove": ["todo->inProgress", "inProgress->review"]}
+        make_labels = q(f"Create the shopfloor labels in {tracker['github']['repo']} now? (y/n)", "y") == "y"
+    else:
+        team = q("Linear team key")
+        states = {"todo": q("Linear state for new work", "Todo"), "inProgress": q("Linear in-progress state", "In Progress"),
+                  "review": q("Linear in-review state", "In Review")}
+        tracker = {"type": "linear", "tokenFile": str(paths.shopfloor_home() / "secrets" / f"{cid}-linear"),
+                   "linear": {"team": team, "label": label, "states": states},
+                   "mayMove": ["todo->inProgress", "inProgress->review"]}
+    channel, owner = q("Slack channel id"), q("Slack owner user id")
     try:
         every = int(q("Run every N hours", "3"))
     except ValueError:
@@ -60,9 +88,7 @@ def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, 
         "id": cid, "dryRun": True, "schedule": sched,
         "repos": {repo: {"github": github, "base": base, "path": local}},
         "protectedBranches": sorted({"main", "master", base}),
-        "tracker": {"type": "linear", "tokenFile": str(secrets / f"{cid}-linear"),
-                    "linear": {"team": team, "label": label, "states": states},
-                    "mayMove": ["todo->inProgress", "inProgress->review"]},
+        "tracker": tracker,
         "chat": {"type": "slack", "tokenFile": str(secrets / f"{cid}-slack"),
                  "slack": {"channel": channel, "ownerUserId": owner}},
     }
@@ -74,7 +100,8 @@ def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, 
     if crew_file.exists():
         out(f"{crew_file} already exists; edit it by hand or pick another crew id.")
         return 1
-    write_secret(Path(cfg["tracker"]["tokenFile"]), read_secret(secret, "Linear API key (hidden): "))
+    if ttype == "linear":
+        write_secret(Path(cfg["tracker"]["tokenFile"]), read_secret(secret, "Linear API key (hidden): "))
     write_secret(Path(cfg["chat"]["tokenFile"]), read_secret(secret, "Slack bot token (hidden): "))
     state.atomic_write(crew_file, json.dumps(cfg, indent=2) + "\n")
     board_file = paths.shopfloor_home() / "board.json"
@@ -83,6 +110,14 @@ def run_wizard(ask=input, out=print, secret=getpass.getpass, installer=install, 
     state.atomic_write(board_file, json.dumps(board, indent=2) + "\n")
     ensure_dirs(cid)
     out(f"Wrote {crew_file}")
+    if ttype == "github" and make_labels:
+        gh = settings(config.load_crew(cid))
+        for name, color in ((gh["label"], "0e8a16"), (gh["states"]["inProgress"], "fbca04"),
+                            (gh["states"]["review"], "1d76db")):
+            try:
+                make_label(gh["repo"], name, color)
+            except (proc.ProcError, OSError) as e:
+                out(f"Could not create label {name}: {e}\n  run: {shlex.join(label_argv(gh['repo'], name, color))}")
 
     if doctor.report(doctor.check_all(cid, deps, during_init=True), out):
         out("Fix the failures above, then run: shopfloor install")

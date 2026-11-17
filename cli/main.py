@@ -99,7 +99,7 @@ def _parser() -> argparse.ArgumentParser:
     sub.choices["doctor"].add_argument("--live", action="store_true",
                                        help="also run one real sandboxed claude session (uses your Claude plan)")
     sub.add_parser("run").add_argument("crew")
-    sec = sub.add_parser("secret", help="replace a crew's Linear or Slack token")
+    sec = sub.add_parser("secret", help="replace a crew's tracker or chat token")
     sec.add_argument("crew")
     sec.add_argument("which", choices=("tracker", "chat"))
     for name in ("init", "uninstall", "board"):

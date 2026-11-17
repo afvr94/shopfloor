@@ -27,8 +27,11 @@ def key_paths(obj: dict, prefix: str = "") -> set:
 class Docs(unittest.TestCase):
     def test_config_doc_covers_every_key(self):
         text = (ROOT / "docs" / "config.md").read_text()
-        example = json.loads((ROOT / "examples" / "crew.example.json").read_text())
-        paths = key_paths(DEFAULTS) | key_paths(example) | {f"board.{k}" for k in BOARD_DEFAULTS}
+        examples = sorted((ROOT / "examples").glob("crew*.example.json"))
+        self.assertIn("crew.github.example.json", [e.name for e in examples])
+        paths = {f"board.{k}" for k in BOARD_DEFAULTS} | key_paths(DEFAULTS)
+        for e in examples:
+            paths |= key_paths(json.loads(e.read_text()))
         missing = sorted(p for p in paths if f"`{p}`" not in text)
         self.assertEqual(missing, [])
 

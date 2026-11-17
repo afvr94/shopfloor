@@ -150,6 +150,71 @@ class ConfigTest(Base):
     def test_validate_rejects_unknown_maymove_state(self):
         self.assertIn("mayMove", self.errors(lambda c: c["tracker"]["mayMove"].append("todo->done")))
 
+    def github_cfg(self):
+        c = example()
+        c["tracker"] = {"type": "github", "mayMove": ["todo->inProgress", "inProgress->review"],
+                        "github": {"repo": "acme/app"}}
+        return c
+
+    def test_github_tracker_validates(self):
+        self.assertEqual(config.validate(self.github_cfg()), [])
+
+    def test_github_repo_must_be_owner_name(self):
+        c = self.github_cfg()
+        c["tracker"]["github"]["repo"] = "nope"
+        self.assertIn("tracker.github.repo must look like owner/name", config.validate(c))
+
+    def test_github_tracker_refuses_token_file(self):
+        c = self.github_cfg()
+        c["tracker"]["tokenFile"] = "~/x"
+        self.assertIn("tracker.tokenFile is not used with github; the tracker uses your gh login", config.validate(c))
+
+    def test_linear_tracker_needs_token_file(self):
+        c = example()
+        del c["tracker"]["tokenFile"]
+        self.assertIn("tracker.tokenFile is required for linear", config.validate(c))
+
+    def test_github_may_move_uses_fixed_stages(self):
+        c = self.github_cfg()
+        c["tracker"]["mayMove"] = ["todo->done"]
+        self.assertTrue(any("tracker.mayMove entry 'todo->done'" in e for e in config.validate(c)))
+
+    def test_github_states_only_name_in_progress_and_review(self):
+        c = self.github_cfg()
+        c["tracker"]["github"]["states"] = {"todo": "shopfloor"}
+        self.assertIn("tracker.github.states may only name inProgress and review; todo has no label",
+                      config.validate(c))
+
+    def test_github_state_labels_must_be_nonempty_strings(self):
+        for bad in ("", None, 3):
+            with self.subTest(bad=bad):
+                c = self.github_cfg()
+                c["tracker"]["github"]["states"] = {"review": bad}
+                self.assertIn("tracker.github.states labels must be non-empty strings", config.validate(c))
+
+    def test_github_state_labels_must_differ(self):
+        c = self.github_cfg()
+        c["tracker"]["github"]["states"] = {"inProgress": "wip", "review": "WIP"}
+        self.assertIn("tracker.github.states labels must differ from each other", config.validate(c))
+
+    def test_github_state_labels_must_differ_from_opt_in_and_hold(self):
+        for states in ({"inProgress": "Shopfloor"}, {"review": "HOLD"}):
+            with self.subTest(states=states):
+                c = self.github_cfg()
+                c["tracker"]["github"]["states"] = states
+                self.assertIn("tracker.github.states labels must differ from the opt-in label and hold labels",
+                              config.validate(c))
+
+    def test_unknown_tracker_type(self):
+        c = self.github_cfg()
+        c["tracker"]["type"] = "jira"
+        self.assertIn("tracker.type must be 'linear' or 'github'", config.validate(c))
+
+    def test_leftover_linear_block_is_not_an_error_for_github(self):
+        c = self.github_cfg()
+        c["tracker"]["linear"] = {"team": "!!"}
+        self.assertEqual(config.validate(c), [])
+
     def test_validate_rejects_bad_id_and_types(self):
         def m(c):
             c["id"] = "Bad Id"

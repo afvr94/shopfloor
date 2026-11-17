@@ -276,10 +276,11 @@ def _crew_rows(cid: str, deps: dict, live: bool = False) -> list[Row]:
     except config.ConfigError as e:
         return [(False, f"{cid}: config", redact(str(e)))]
     rows: list[Row] = [(True, f"{cid}: config", "")]
-    rows += [_secret_row(f"{cid}: {k}", cfg[k]["tokenFile"]) for k in ("tracker", "chat")]
+    ttype = cfg["tracker"]["type"]
+    rows += [_secret_row(f"{cid}: {k}", cfg[k]["tokenFile"]) for k in ("tracker", "chat") if k == "chat" or ttype == "linear"]
     tracker, chat = deps["tracker"](cfg), deps["chat"](cfg)
-    rows.append(_guarded(f"{cid}: linear viewer", lambda: tracker.viewer() and None))
-    rows.append(_guarded(f"{cid}: linear team", lambda: "; ".join(tracker.team_check()) or None))
+    rows.append(_guarded(f"{cid}: {ttype} viewer", lambda: tracker.viewer() and None))
+    rows.append(_guarded(f"{cid}: {ttype} team", lambda: "; ".join(tracker.team_check()) or None))
     rows.append(_guarded(f"{cid}: slack auth", lambda: chat.auth_test() and None))
     rows.append(_guarded(f"{cid}: slack channel", chat.channel_check))
     rows += _repo_rows(cid, cfg, deps)

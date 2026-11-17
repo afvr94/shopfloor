@@ -35,7 +35,11 @@ DEFAULTS = {
     "gitFlow": {"type": "pr-only", "testBranch": None, "mergeDenyPaths": []},
     "policyPacks": [],
     "guard": {"offLimits": [], "secretFiles": list(DEFAULT_SECRET_FILES)},
-    "tracker": {"linear": {"label": "shopfloor", "holdLabels": ["hold"]}},
+    "tracker": {
+        "linear": {"label": "shopfloor", "holdLabels": ["hold"]},
+        "github": {"label": "shopfloor", "holdLabels": ["hold"], "assignee": None,
+                   "states": {"inProgress": "shopfloor:in-progress", "review": "shopfloor:review"}},
+    },
 }
 
 BOARD_DEFAULTS = {
@@ -51,6 +55,7 @@ BOARD_DEFAULTS = {
 PLAIN_STYLE = "Plain, neutral and brief. No jokes, slang or emoji."
 ID_RE = paths.CREW_ID_RE
 HHMM_RE = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
+STAGES = ("todo", "inProgress", "review")
 GITHUB_RE = re.compile(r"[\w.-]+/[\w.-]+")
 TEAM_RE = re.compile(r"[A-Za-z][A-Za-z0-9]{0,9}")
 MOVE_RE = re.compile(r"^(\w+)->(\w+)$")
@@ -85,12 +90,36 @@ def validate(cfg: dict) -> list[str]:
 
     if not (isinstance(c.get("id"), str) and ID_RE.fullmatch(c["id"])):
         errs.append("id must match ^[a-z0-9][a-z0-9-]{0,30}$")
-    if d("tracker").get("type") != "linear":
-        errs.append("tracker.type must be 'linear'")
-    lin = d("tracker").get("linear")
-    team = lin.get("team") if isinstance(lin, dict) else None
-    if team is not None and not (isinstance(team, str) and TEAM_RE.fullmatch(team)):  # never echo it: a pasted token lands here too
-        errs.append("tracker.linear.team must be a Linear team key, the prefix of its issue ids (like ENG)")
+    ttype = d("tracker").get("type")
+    if ttype not in ("linear", "github"):
+        errs.append("tracker.type must be 'linear' or 'github'")
+    block = d("tracker").get(ttype)
+    block = block if isinstance(block, dict) else {}
+    if ttype == "linear":
+        team = block.get("team")
+        if team is not None and not (isinstance(team, str) and TEAM_RE.fullmatch(team)):  # never echo it: a pasted token lands here too
+            errs.append("tracker.linear.team must be a Linear team key, the prefix of its issue ids (like ENG)")
+        if not d("tracker").get("tokenFile"):
+            errs.append("tracker.tokenFile is required for linear")
+    elif ttype == "github":
+        if not (isinstance(block.get("repo"), str) and GITHUB_RE.fullmatch(block["repo"])):
+            errs.append("tracker.github.repo must look like owner/name")
+        if "tokenFile" in d("tracker"):
+            errs.append("tracker.tokenFile is not used with github; the tracker uses your gh login")
+        states = block.get("states") if isinstance(block.get("states"), dict) else {}
+        for k in sorted(set(states) - {"inProgress", "review"}):
+            errs.append(f"tracker.github.states may only name inProgress and review; {k} has no label")
+        names = list(states.values())
+        if not all(isinstance(n, str) and n for n in names):
+            errs.append("tracker.github.states labels must be non-empty strings")
+        else:
+            lower = [n.lower() for n in names]
+            if len(set(lower)) < len(lower):
+                errs.append("tracker.github.states labels must differ from each other")
+            # a state label equal to the opt-in or a hold label hides every issue, and transition would strip it
+            others = [block.get("label"), *(block.get("holdLabels") or [])]
+            if set(lower) & {o.lower() for o in others if isinstance(o, str)}:
+                errs.append("tracker.github.states labels must differ from the opt-in label and hold labels")
     if d("chat").get("type") != "slack":
         errs.append("chat.type must be 'slack'")
     flow = d("gitFlow")
@@ -126,12 +155,17 @@ def validate(cfg: dict) -> list[str]:
             if not (isinstance(r.get(k), str) and r[k]):
                 errs.append(f"repos.{name}.{k} is required")
 
-    states = d("tracker").get("linear", {}).get("states")
-    states = states if isinstance(states, dict) else {}
-    for move in d("tracker").get("mayMove", []):
+    if ttype == "linear":
+        states = block.get("states")
+        keys = states if isinstance(states, dict) else {}
+        where = "tracker.linear.states"
+    else:
+        keys = STAGES
+        where = ", ".join(STAGES)
+    for move in d("tracker").get("mayMove", []) if ttype in ("linear", "github") else []:
         m = MOVE_RE.match(move) if isinstance(move, str) else None
-        if not m or m.group(1) not in states or m.group(2) not in states:
-            errs.append(f"tracker.mayMove entry {move!r} must be 'a->b' with both in tracker.linear.states")
+        if not m or m.group(1) not in keys or m.group(2) not in keys:
+            errs.append(f"tracker.mayMove entry {move!r} must be 'a->b' with both in {where}")
 
     if flow.get("type") == "merge-to-test-branch":
         tb = flow.get("testBranch")

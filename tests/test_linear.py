@@ -44,6 +44,10 @@ def cfg_with(**linear_over):
 
 
 class LinearTests(unittest.TestCase):
+    def test_settings_returns_active_block(self):
+        self.assertEqual(base.settings(CFG), CFG["tracker"]["linear"])
+        self.assertEqual(base.settings({"tracker": {"type": "github", "github": {"repo": "a/b"}}}), {"repo": "a/b"})
+
     def test_candidates_filter_label_state_team_and_skip_hold(self):
         fake = FakeLinear([page([issue("ENG-1"), issue("ENG-2", ["Hold"]), issue("ENG-3", ["bug"])])])
         out = linear.LinearTracker(CFG, post=fake).list_candidates()
