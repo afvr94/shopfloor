@@ -1,6 +1,6 @@
 ---
 name: review
-description: Reviews a Shopfloor ticket's branch before it ships - simplify, TypeScript and frontend passes when those files changed, then correctness last - fixing what each pass accepts and committing each pass on its own. Use for "/shopfloor:review <KEY>"; the build skill runs it before shipping.
+description: Reviews a Shopfloor ticket's branch before it ships - runs a simplify pass, TypeScript and frontend passes when those files changed, and a correctness pass last, fixes what each pass accepts, and commits each pass on its own. Use for "/shopfloor:review <KEY>"; the build skill runs it before shipping.
 ---
 
 # Shopfloor review
@@ -22,7 +22,7 @@ Run them in this order, one at a time, because each pass edits the tree the next
 | 3 | Frontend | a UI file changed (components, screens, styles, markup) | missing labels, keyboard access or focus states, no loading, empty or error state, new styles where the repo already has a component or token |
 | 4 | Correctness | always | bugs, unhandled edge cases and errors, broken callers of a changed function, security holes, tests that do not test the change |
 
-Run each pass in a fresh Agent, in the foreground. The brief is all the context it gets, so it holds:
+Run each pass in a fresh Agent, in the foreground. The brief is all the context it gets, so put in it:
 - the worktree path, `origin/<base>...HEAD` as the diff to review, and the changed-file list
 - the pass's row from the table above, as the only thing to look for
 - "Read the code around the diff, not only the diff. Fix the findings you accept in the working tree. Do not commit, and do not touch files outside the worktree."
@@ -32,10 +32,10 @@ Run each pass in a fresh Agent, in the foreground. The brief is all the context 
 
 Do not put your own view of the code in the brief; an agent handed a conclusion tends to confirm it.
 
-When a pass reports a deal breaker, stop and `sf chat ask`, and leave the worktree as it is.
+When a pass reports a deal breaker, leave the worktree as it is, ask the owner with `sf chat ask`, and stop.
 
 ## 3. After each pass that changed files
-1. Run the repo's tests and lint. If they fail, fix the failure, or `git restore` that pass's edits and `rm` the files it added. Never carry a red tree into the next pass.
+1. Run the repo's tests and lint. If they fail, fix the failure, or `git restore` that pass's edits and `rm` the files it added. Never start the next pass with failing tests or lint.
 2. `git add` the pass's files and commit them on their own with `git commit -m`, a Conventional Commit with the ticket key as scope, for example `refactor(<KEY>): simplify per review`. No attribution or sign-off lines.
 
 ## 4. Record
