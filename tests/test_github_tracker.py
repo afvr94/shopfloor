@@ -5,7 +5,7 @@ import unittest
 
 from engine.adapters.tracker import make_tracker
 from engine.adapters.tracker.base import TrackerError
-from engine.adapters.tracker.github import GitHubTracker
+from engine.adapters.tracker.github import MARKER, GitHubTracker
 from engine.lib.proc import ProcError
 from tests.fakes import FakeGh
 
@@ -168,7 +168,7 @@ class GitHubTrackerTests(unittest.TestCase):
         argv, stdin = fake.calls[0]
         self.assertEqual(argv, ["gh", "api", "-X", "POST", "repos/acme/app/issues/7/comments",
                                 "--input", "-", "--jq", ".id"])
-        self.assertEqual(stdin, json.dumps({"body": "body kept off argv"}))
+        self.assertEqual(stdin, json.dumps({"body": "body kept off argv\n\n" + MARKER}))
         self.assertFalse(any("kept off argv" in a for a in argv))
 
     def test_update_comment(self):
@@ -177,7 +177,14 @@ class GitHubTrackerTests(unittest.TestCase):
         self.assertEqual(fake.calls, [
             (["gh", "api", "repos/acme/app/issues/comments/55"], None),
             (["gh", "api", "-X", "PATCH", "repos/acme/app/issues/comments/55", "--input", "-"],
-             json.dumps({"body": "x"}))])
+             json.dumps({"body": "x\n\n" + MARKER}))])
+
+    def test_comment_and_update_carry_marker(self):
+        t, fake = tracker(["1\n", json.dumps({"issue_url": "https://api.github.com/repos/acme/app/issues/7"}), ""])
+        t.comment("GH-7", "a")
+        t.update_comment("GH-7", "55", "b")
+        self.assertTrue(fake.calls[0][1].endswith('\\n\\n' + MARKER + '"}'))
+        self.assertTrue(fake.calls[2][1].endswith('\\n\\n' + MARKER + '"}'))
 
     def test_update_comment_rejects_non_numeric_ids(self):
         for bad in ("1/../../repos/other/repo/issues/5", "12?x", "12#x", "", " 12", "١٢"):
@@ -204,7 +211,7 @@ class GitHubTrackerTests(unittest.TestCase):
         self.assertEqual(writes(fake), [])
         t, fake = tracker(["hello\n", "1\n"])
         t.link_pr("GH-7", url)
-        self.assertEqual(fake.calls[1][1], json.dumps({"body": "Pull request: " + url}))
+        self.assertEqual(fake.calls[1][1], json.dumps({"body": "Pull request: " + url + "\n\n" + MARKER}))
 
     def test_writes_not_retried(self):
         t, fake = tracker([ProcError(["gh"], 1, "HTTP 502")])
