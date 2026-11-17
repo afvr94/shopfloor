@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/afvr94/shopfloor/security/advisories/new
+    about: Report a guard, sandbox or sf escape, or a credential leak, privately.

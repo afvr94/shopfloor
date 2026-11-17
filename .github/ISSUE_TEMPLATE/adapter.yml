@@ -1,0 +1,36 @@
+name: Adapter request
+description: Ask for a new tracker, chat or git flow, such as Jira, GitHub Issues, Discord or Telegram.
+labels: [adapter]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options: [Tracker, Chat, Git flow]
+    validations:
+      required: true
+  - type: input
+    id: service
+    attributes:
+      label: Service
+      placeholder: Jira Cloud
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: How you'd use it
+      description: Your setup, and what you'd need from a crew on it.
+    validations:
+      required: true
+  - type: textarea
+    id: auth
+    attributes:
+      label: Credentials and limits
+      description: How the service hands out tokens, which scopes the crew would need, and any rate limits you know about.
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Building it
+      options:
+        - label: I'd like to build it myself (see the adapter section of CONTRIBUTING.md).
